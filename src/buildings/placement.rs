@@ -20,7 +20,7 @@ pub struct PlacementMode {
 #[derive(Component)]
 pub struct GhostBuilding;
 
-pub const BUILDABLE_KINDS: [(KeyCode, BuildingKind); 18] = [
+pub const BUILDABLE_KINDS: [(KeyCode, BuildingKind); 20] = [
     (KeyCode::Digit1, BuildingKind::House),
     (KeyCode::Digit2, BuildingKind::Barracks),
     (KeyCode::Digit3, BuildingKind::ArcheryRange),
@@ -39,6 +39,8 @@ pub const BUILDABLE_KINDS: [(KeyCode, BuildingKind); 18] = [
     (KeyCode::Backslash, BuildingKind::Monastery),
     (KeyCode::Semicolon, BuildingKind::Castle),
     (KeyCode::Quote, BuildingKind::Dock),
+    (KeyCode::KeyT, BuildingKind::TownCenter),
+    (KeyCode::KeyY, BuildingKind::Wonder),
 ];
 
 pub fn enter_placement_mode(

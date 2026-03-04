@@ -61,6 +61,21 @@ pub enum Technology {
     EliteThrowingAxemanUpgrade,
     EliteTeutonicKnightUpgrade,
     EliteMangudaiUpgrade,
+    // Monastery
+    Redemption,
+    Atonement,
+    HerbalMedicine,
+    Sanctity,
+    Fervor,
+    Illumination,
+    BlockPrinting,
+    Theocracy,
+    Faith,
+    // Market
+    Caravan,
+    Guilds,
+    Coinage,
+    Banking,
 }
 
 impl Technology {
@@ -109,6 +124,21 @@ impl Technology {
             Technology::EliteThrowingAxemanUpgrade => (0, 0, 750, 0),
             Technology::EliteTeutonicKnightUpgrade => (0, 0, 800, 0),
             Technology::EliteMangudaiUpgrade => (0, 0, 900, 0),
+            // Monastery
+            Technology::Redemption => (475, 0, 0, 0),
+            Technology::Atonement => (325, 0, 0, 0),
+            Technology::HerbalMedicine => (350, 0, 0, 0),
+            Technology::Sanctity => (120, 0, 0, 0),
+            Technology::Fervor => (140, 0, 0, 0),
+            Technology::Illumination => (120, 0, 0, 0),
+            Technology::BlockPrinting => (200, 0, 0, 0),
+            Technology::Theocracy => (200, 0, 0, 0),
+            Technology::Faith => (0, 0, 750, 0),
+            // Market
+            Technology::Caravan => (0, 0, 200, 0),
+            Technology::Guilds => (0, 0, 200, 0),
+            Technology::Coinage => (0, 0, 200, 0),
+            Technology::Banking => (0, 0, 200, 0),
         }
     }
 
@@ -143,6 +173,12 @@ impl Technology {
             Technology::PaladinUpgrade => 170.0,
             Technology::EliteLongbowmanUpgrade | Technology::EliteThrowingAxemanUpgrade
             | Technology::EliteTeutonicKnightUpgrade | Technology::EliteMangudaiUpgrade => 60.0,
+            Technology::Sanctity | Technology::Fervor => 30.0,
+            Technology::Redemption | Technology::Atonement | Technology::HerbalMedicine => 50.0,
+            Technology::Illumination | Technology::BlockPrinting | Technology::Theocracy => 40.0,
+            Technology::Faith => 60.0,
+            Technology::Caravan | Technology::Coinage => 40.0,
+            Technology::Guilds | Technology::Banking => 50.0,
         }
     }
 
@@ -171,6 +207,11 @@ impl Technology {
             | Technology::HussarUpgrade | Technology::PaladinUpgrade => Age::Imperial,
             Technology::EliteLongbowmanUpgrade | Technology::EliteThrowingAxemanUpgrade
             | Technology::EliteTeutonicKnightUpgrade | Technology::EliteMangudaiUpgrade => Age::Imperial,
+            Technology::Sanctity | Technology::Fervor => Age::Feudal,
+            Technology::Redemption | Technology::Atonement | Technology::HerbalMedicine
+            | Technology::Caravan | Technology::Coinage => Age::Castle,
+            Technology::Illumination | Technology::BlockPrinting | Technology::Theocracy
+            | Technology::Faith | Technology::Guilds | Technology::Banking => Age::Imperial,
         }
     }
 
@@ -196,6 +237,11 @@ impl Technology {
             | Technology::CavalierUpgrade | Technology::PaladinUpgrade => BuildingKind::Stable,
             Technology::EliteLongbowmanUpgrade | Technology::EliteThrowingAxemanUpgrade
             | Technology::EliteTeutonicKnightUpgrade | Technology::EliteMangudaiUpgrade => BuildingKind::Castle,
+            Technology::Redemption | Technology::Atonement | Technology::HerbalMedicine
+            | Technology::Sanctity | Technology::Fervor | Technology::Illumination
+            | Technology::BlockPrinting | Technology::Theocracy | Technology::Faith => BuildingKind::Monastery,
+            Technology::Caravan | Technology::Guilds
+            | Technology::Coinage | Technology::Banking => BuildingKind::Market,
         }
     }
 
@@ -301,6 +347,55 @@ impl ResearchedTechnologies {
         if self.techs.contains(&Technology::Wheelbarrow) { bonus += 3; }
         if self.techs.contains(&Technology::HandCart) { bonus += 3; }
         bonus
+    }
+
+    pub fn wood_gather_multiplier(&self) -> f32 {
+        let mut mult = 1.0;
+        if self.techs.contains(&Technology::DoubleBitAxe) { mult *= 1.20; }
+        if self.techs.contains(&Technology::BowSaw) { mult *= 1.20; }
+        mult
+    }
+
+    pub fn gold_gather_multiplier(&self) -> f32 {
+        let mut mult = 1.0;
+        if self.techs.contains(&Technology::GoldMining) { mult *= 1.15; }
+        mult
+    }
+
+    pub fn stone_gather_multiplier(&self) -> f32 {
+        let mut mult = 1.0;
+        if self.techs.contains(&Technology::StoneMining) { mult *= 1.15; }
+        mult
+    }
+
+    pub fn farm_gather_multiplier(&self) -> f32 {
+        let mut mult = 1.0;
+        if self.techs.contains(&Technology::HorseCollar) { mult *= 1.25; }
+        if self.techs.contains(&Technology::HeavyPlow) { mult *= 1.20; }
+        mult
+    }
+
+    pub fn farm_food_bonus(&self) -> u32 {
+        let mut bonus = 0;
+        if self.techs.contains(&Technology::HorseCollar) { bonus += 75; }
+        if self.techs.contains(&Technology::HeavyPlow) { bonus += 125; }
+        bonus
+    }
+
+    pub fn monk_hp_bonus(&self) -> f32 {
+        if self.techs.contains(&Technology::Sanctity) { 15.0 } else { 0.0 }
+    }
+
+    pub fn monk_speed_multiplier(&self) -> f32 {
+        if self.techs.contains(&Technology::Fervor) { 1.15 } else { 1.0 }
+    }
+
+    pub fn monk_range_bonus(&self) -> f32 {
+        if self.techs.contains(&Technology::BlockPrinting) { 3.0 } else { 0.0 }
+    }
+
+    pub fn trade_gold_multiplier(&self) -> f32 {
+        if self.techs.contains(&Technology::Caravan) { 1.50 } else { 1.0 }
     }
 }
 
@@ -491,6 +586,16 @@ pub fn available_techs(kind: BuildingKind, researched: &ResearchedTechnologies, 
         BuildingKind::Castle => vec![
             Technology::EliteLongbowmanUpgrade, Technology::EliteThrowingAxemanUpgrade,
             Technology::EliteTeutonicKnightUpgrade, Technology::EliteMangudaiUpgrade,
+        ],
+        BuildingKind::Monastery => vec![
+            Technology::Sanctity, Technology::Fervor,
+            Technology::Redemption, Technology::Atonement, Technology::HerbalMedicine,
+            Technology::Illumination, Technology::BlockPrinting, Technology::Theocracy,
+            Technology::Faith,
+        ],
+        BuildingKind::Market => vec![
+            Technology::Caravan, Technology::Guilds,
+            Technology::Coinage, Technology::Banking,
         ],
         _ => vec![],
     };

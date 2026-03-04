@@ -45,7 +45,7 @@ pub struct AgeUpProgress {
     pub target_age: Option<Age>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BuildingKind {
     TownCenter,
     House,
@@ -67,6 +67,7 @@ pub enum BuildingKind {
     Monastery,
     Castle,
     Dock,
+    Wonder,
 }
 
 impl BuildingKind {
@@ -101,6 +102,7 @@ impl BuildingKind {
             BuildingKind::Monastery => (0, 175, 0, 0),
             BuildingKind::Castle => (0, 0, 0, 650),
             BuildingKind::Dock => (0, 150, 0, 0),
+            BuildingKind::Wonder => (1000, 0, 1000, 1000),
         }
     }
 
@@ -126,6 +128,7 @@ impl BuildingKind {
             BuildingKind::Monastery => 1200.0,
             BuildingKind::Castle => 4800.0,
             BuildingKind::Dock => 800.0,
+            BuildingKind::Wonder => 4800.0,
         }
     }
 
@@ -140,6 +143,7 @@ impl BuildingKind {
             BuildingKind::PalisadeWall | BuildingKind::StoneWall => (1, 1),
             BuildingKind::Gate => (1, 1),
             BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill => (1, 1),
+            BuildingKind::Wonder => (5, 5),
             _ => (3, 3),
         }
     }
@@ -161,8 +165,8 @@ impl BuildingKind {
 
     pub fn required_age(self) -> Age {
         match self {
-            BuildingKind::TownCenter
-            | BuildingKind::House
+            BuildingKind::TownCenter => Age::Castle,
+            BuildingKind::House
             | BuildingKind::Barracks
             | BuildingKind::Farm
             | BuildingKind::LumberCamp
@@ -175,6 +179,7 @@ impl BuildingKind {
             | BuildingKind::SiegeWorkshop | BuildingKind::University
             | BuildingKind::Monastery | BuildingKind::Castle => Age::Castle,
             BuildingKind::Dock => Age::Feudal,
+            BuildingKind::Wonder => Age::Imperial,
         }
     }
 
@@ -206,6 +211,7 @@ impl BuildingKind {
             | BuildingKind::Monastery => (1.0, 7.0),
             BuildingKind::Castle => (8.0, 11.0),
             BuildingKind::Dock => (0.0, 6.0),
+            BuildingKind::Wonder => (8.0, 11.0),
             BuildingKind::Farm => (0.0, 0.0),
             BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill => (0.0, 5.0),
         }
@@ -233,6 +239,7 @@ impl BuildingKind {
             BuildingKind::Monastery => 60.0,
             BuildingKind::Castle => 200.0,
             BuildingKind::Dock => 35.0,
+            BuildingKind::Wonder => 350.0,
         }
     }
 
@@ -262,6 +269,7 @@ impl BuildingKind {
             BuildingKind::Monastery => [200, 180, 120, 255],
             BuildingKind::Castle => [140, 120, 100, 255],
             BuildingKind::Dock => [100, 80, 50, 255],
+            BuildingKind::Wonder => [220, 200, 140, 255],
         }
     }
 }
@@ -386,6 +394,7 @@ impl UnitKind {
             UnitKind::Mangudai | UnitKind::EliteMangudai => 26.0,
             UnitKind::FishingShip => 40.0,
             UnitKind::Galley => 60.0,
+            UnitKind::King => 0.0,
         }
     }
 
@@ -410,6 +419,7 @@ impl UnitKind {
             UnitKind::Mangudai | UnitKind::EliteMangudai => (0, 55, 65, 0),
             UnitKind::FishingShip => (0, 75, 0, 0),
             UnitKind::Galley => (0, 90, 30, 0),
+            UnitKind::King => (0, 0, 0, 0),
         }
     }
 
@@ -431,6 +441,7 @@ impl UnitKind {
             | UnitKind::EliteLongbowman | UnitKind::EliteThrowingAxeman
             | UnitKind::EliteTeutonicKnight | UnitKind::EliteMangudai => Age::Imperial,
             UnitKind::FishingShip | UnitKind::Galley => Age::Feudal,
+            UnitKind::King => Age::Dark,
         }
     }
 

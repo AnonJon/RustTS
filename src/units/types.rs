@@ -48,6 +48,7 @@ pub enum UnitKind {
     // Other
     TradeCart,
     Monk,
+    King,
     FishingShip,
     Galley,
 }
@@ -367,6 +368,18 @@ impl UnitKind {
                 speed: 0.7,
                 unit_class: UnitClass::Villager,
                 color: [220, 200, 80, 255],
+            },
+            UnitKind::King => UnitStats {
+                hp: 75.0,
+                melee_damage: 0.0,
+                pierce_damage: 0.0,
+                bonuses: vec![],
+                melee_armor: 0.0,
+                pierce_armor: 0.0,
+                range: 0.0,
+                speed: 1.32,
+                unit_class: UnitClass::Infantry,
+                color: [255, 215, 0, 255],
             },
             UnitKind::Scorpion => UnitStats {
                 hp: 40.0,

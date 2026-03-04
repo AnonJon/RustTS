@@ -80,11 +80,11 @@ fn spawn_initial_units(
     mut commands: Commands,
     sprites: Res<types::UnitSprites>,
     config: Res<crate::map::generation::MapConfig>,
+    settings: Res<crate::GameSettings>,
 ) {
     let bx = config.player_base().x;
     let by = config.player_base().y;
 
-    // Spawn outside the TC footprint (TC is 4x4 starting at base pos)
     let militia_offsets = [(-1, -1), (4, 0), (0, 4)];
     for (dx, dy) in militia_offsets {
         let (lx, ly) = crate::map::generation::find_nearest_land(&config.terrain_grid, bx + dx, by + dy);
@@ -109,6 +109,20 @@ fn spawn_initial_units(
             &mut commands,
             sprites.get(types::UnitKind::Villager),
             types::UnitKind::Villager,
+            Team(0),
+            grid,
+            world,
+        );
+    }
+
+    if settings.game_mode == crate::GameMode::Regicide {
+        let (lx, ly) = crate::map::generation::find_nearest_land(&config.terrain_grid, bx + 2, by + 2);
+        let grid = crate::map::GridPosition::new(lx, ly);
+        let world = grid.to_world();
+        types::spawn_unit(
+            &mut commands,
+            sprites.get(types::UnitKind::King),
+            types::UnitKind::King,
             Team(0),
             grid,
             world,

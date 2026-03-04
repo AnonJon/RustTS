@@ -22,6 +22,7 @@ pub fn gathering_system(
     mut resource_nodes: Query<(Entity, &Transform, &mut ResourceNode)>,
     drop_offs: Query<(Entity, &Transform, &DropOff, &Team), Without<Unit>>,
     time: Res<Time>,
+    researched: Res<crate::buildings::research::ResearchedTechnologies>,
 ) {
     for (unit_entity, unit_tf, mut state, team, gather_timer, carrying) in &mut gatherers {
         let resource_entity = match &*state {
@@ -65,6 +66,14 @@ pub fn gathering_system(
             }
         }
 
+        let rate_mult = match node.kind {
+            ResourceKind::Wood => researched.wood_gather_multiplier(),
+            ResourceKind::Gold => researched.gold_gather_multiplier(),
+            ResourceKind::Stone => researched.stone_gather_multiplier(),
+            ResourceKind::Food => 1.0,
+        };
+        let effective_rate = GATHER_RATE / rate_mult;
+
         if let Some(mut timer) = gather_timer {
             timer.0.tick(time.delta());
             if timer.0.just_finished() {
@@ -84,10 +93,11 @@ pub fn gathering_system(
                     }
                     spawn_gather_text(&mut commands, res_pos, gathered, kind);
                 }
+                timer.0.set_duration(std::time::Duration::from_secs_f32(effective_rate));
             }
         } else {
             commands.entity(unit_entity).insert(
-                GatherTimer(Timer::from_seconds(GATHER_RATE, TimerMode::Repeating))
+                GatherTimer(Timer::from_seconds(effective_rate, TimerMode::Repeating))
             );
         }
     }
@@ -167,6 +177,7 @@ pub fn farm_system(
     mut farms: Query<(Entity, &Transform, &Building, Option<&mut FarmFood>), Without<Unit>>,
     drop_offs: Query<(Entity, &Transform, &DropOff, &Team), Without<Unit>>,
     time: Res<Time>,
+    researched: Res<crate::buildings::research::ResearchedTechnologies>,
 ) {
     for (unit_entity, unit_tf, mut state, team, gather_timer, carrying) in &mut farmers {
         let farm_entity = match &*state {
@@ -217,6 +228,9 @@ pub fn farm_system(
             }
         }
 
+        let farm_mult = researched.farm_gather_multiplier();
+        let effective_farm_rate = FARM_RATE / farm_mult;
+
         if let Some(mut timer) = gather_timer {
             timer.0.tick(time.delta());
             if timer.0.just_finished() {
@@ -227,10 +241,11 @@ pub fn farm_system(
                 if let Some(mut ff) = farm_food {
                     ff.remaining = ff.remaining.saturating_sub(1);
                 }
+                timer.0.set_duration(std::time::Duration::from_secs_f32(effective_farm_rate));
             }
         } else {
             commands.entity(unit_entity).insert(
-                GatherTimer(Timer::from_seconds(FARM_RATE, TimerMode::Repeating))
+                GatherTimer(Timer::from_seconds(effective_farm_rate, TimerMode::Repeating))
             );
         }
     }
@@ -411,6 +426,7 @@ pub fn farm_auto_reseed_system(
     reseeders: Query<(&Transform, &Team, &AutoReseed), (With<Building>, Without<FarmFood>)>,
     mut resources: ResMut<PlayerResources>,
     mut images: ResMut<Assets<bevy::prelude::Image>>,
+    researched: Res<crate::buildings::research::ResearchedTechnologies>,
 ) {
     for (farm_entity, farm_tf, farm_team, farm_food, _building) in &depleted_farms {
         if farm_food.remaining > 0 {
@@ -436,7 +452,7 @@ pub fn farm_auto_reseed_system(
             continue;
         }
 
-        commands.entity(farm_entity).insert(FarmFood::new());
+        commands.entity(farm_entity).insert(FarmFood::with_bonus(researched.farm_food_bonus()));
         commands.entity(farm_entity).insert(Health::new(
             crate::buildings::components::BuildingKind::Farm.max_hp(),
         ));

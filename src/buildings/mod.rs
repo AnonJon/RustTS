@@ -200,7 +200,7 @@ pub fn spawn_building(
         BuildingKind::TownCenter | BuildingKind::Blacksmith | BuildingKind::University
         | BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill
         | BuildingKind::Barracks | BuildingKind::ArcheryRange | BuildingKind::Stable
-        | BuildingKind::Castle
+        | BuildingKind::Castle | BuildingKind::Monastery | BuildingKind::Market
     );
     if is_research_bld && !under_construction {
         entity_cmds.insert(research::ResearchQueue { queue: Vec::new() });

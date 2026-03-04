@@ -92,8 +92,15 @@ pub struct FarmFood {
 }
 
 impl FarmFood {
+    pub const BASE_FOOD: u32 = 300;
+
     pub fn new() -> Self {
-        Self { remaining: 300, max: 300 }
+        Self { remaining: Self::BASE_FOOD, max: Self::BASE_FOOD }
+    }
+
+    pub fn with_bonus(bonus: u32) -> Self {
+        let total = Self::BASE_FOOD + bonus;
+        Self { remaining: total, max: total }
     }
 }
 

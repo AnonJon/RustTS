@@ -76,6 +76,22 @@ pub fn setup_hud(mut commands: Commands) {
         spawn_resource_label(parent, "Pop: 0/5", PopText);
     });
 
+    // Countdown display (Wonder/Relic victory timer)
+    commands.spawn((
+        super::game_over::CountdownDisplay,
+        Text::new(""),
+        TextFont { font_size: 16.0, ..default() },
+        TextColor(Color::srgb(1.0, 0.85, 0.3)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(38.0),
+            left: Val::Percent(30.0),
+            right: Val::Percent(30.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+    ));
+
     // Bottom-left info panel
     commands.spawn((
         UnitInfoPanel,
@@ -609,6 +625,8 @@ fn spawn_build_buttons(
         ("\\", "Monastery"),
         (";", "Castle"),
         ("'", "Dock"),
+        ("T", "Town Center"),
+        ("Y", "Wonder"),
     ];
 
     for (i, &(key_label, name)) in labels.iter().enumerate() {

@@ -26,6 +26,7 @@ impl Plugin for GameUiPlugin {
                 lobby_start_button,
                 lobby_button_hover,
                 lobby_civ_buttons,
+                lobby_game_mode_buttons,
             ).run_if(in_state(GameState::Menu)))
             // HUD (InGame state)
             .add_systems(OnEnter(GameState::InGame), (setup_hud, setup_minimap))
@@ -43,6 +44,7 @@ impl Plugin for GameUiPlugin {
                 minimap_click,
                 check_win_lose,
                 show_game_over,
+                update_countdown_display,
                 stats::track_game_time,
             ).run_if(in_state(GameState::InGame)));
     }

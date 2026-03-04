@@ -20,6 +20,7 @@ pub fn construction_system(
     >,
     resource_nodes: Query<(Entity, &Transform, &ResourceNode), (Without<Unit>, Without<Building>)>,
     mut stats: ResMut<crate::ui::stats::GameStats>,
+    researched: Res<super::research::ResearchedTechnologies>,
 ) {
     let dt = time.delta_secs();
     if dt == 0.0 {
@@ -131,7 +132,9 @@ pub fn construction_system(
         }
 
         if bld_kind == BuildingKind::Farm {
-            commands.entity(building_e).insert(crate::resources::components::FarmFood::new());
+            commands.entity(building_e).insert(
+                crate::resources::components::FarmFood::with_bonus(researched.farm_food_bonus())
+            );
         }
 
         if matches!(bld_kind, BuildingKind::Mill | BuildingKind::TownCenter) {
@@ -142,7 +145,7 @@ pub fn construction_system(
             BuildingKind::TownCenter | BuildingKind::Blacksmith | BuildingKind::University
             | BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill
             | BuildingKind::Barracks | BuildingKind::ArcheryRange | BuildingKind::Stable
-            | BuildingKind::Castle
+            | BuildingKind::Castle | BuildingKind::Monastery | BuildingKind::Market
         );
         if is_research_bld {
             commands.entity(building_e).insert(super::research::ResearchQueue { queue: Vec::new() });

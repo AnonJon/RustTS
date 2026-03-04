@@ -1,6 +1,5 @@
 use bevy::prelude::*;
-use crate::GameSettings;
-use crate::GameState;
+use crate::{GameSettings, GameState, GameMode};
 use crate::map::generation::MapType;
 use crate::civilization::{Civilization, PlayerCivilization};
 
@@ -27,6 +26,12 @@ pub struct CivButton(pub Civilization);
 
 #[derive(Component)]
 pub struct CivDescription;
+
+#[derive(Component)]
+pub struct GameModeButton(pub GameMode);
+
+#[derive(Component)]
+pub struct GameModeDescription;
 
 const MIN_PLAYERS: usize = 2;
 const MAX_PLAYERS: usize = 4;
@@ -202,6 +207,47 @@ pub fn setup_lobby(mut commands: Commands) {
                     TextColor(Color::srgb(0.55, 0.55, 0.55)),
                 ));
 
+                // Game mode selection
+                panel.spawn((
+                    Text::new("Game Mode"),
+                    TextFont { font_size: 16.0, ..default() },
+                    TextColor(Color::srgb(0.85, 0.85, 0.85)),
+                ));
+
+                panel.spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(8.0),
+                    ..default()
+                }).with_children(|row| {
+                    for mode in GameMode::ALL {
+                        let is_selected = mode == GameMode::Conquest;
+                        row.spawn((
+                            GameModeButton(mode),
+                            Button,
+                            Node {
+                                padding: UiRect::axes(Val::Px(14.0), Val::Px(10.0)),
+                                ..default()
+                            },
+                            BackgroundColor(if is_selected {
+                                Color::srgb(0.25, 0.45, 0.70)
+                            } else {
+                                Color::srgb(0.18, 0.18, 0.24)
+                            }),
+                        )).with_child((
+                            Text::new(mode.label()),
+                            TextFont { font_size: 15.0, ..default() },
+                            TextColor(Color::srgb(0.95, 0.95, 0.95)),
+                        ));
+                    }
+                });
+
+                panel.spawn((
+                    GameModeDescription,
+                    Text::new(GameMode::Conquest.description()),
+                    TextFont { font_size: 13.0, ..default() },
+                    TextColor(Color::srgb(0.55, 0.55, 0.55)),
+                ));
+
                 // Start button
                 panel.spawn((
                     StartButton,
@@ -323,6 +369,38 @@ pub fn lobby_civ_buttons(
     }
 }
 
+pub fn lobby_game_mode_buttons(
+    interaction_q: Query<
+        (&Interaction, &GameModeButton),
+        (Changed<Interaction>, With<Button>),
+    >,
+    mut all_mode_btns: Query<(&GameModeButton, &mut BackgroundColor)>,
+    mut settings: ResMut<GameSettings>,
+    mut desc_q: Query<&mut Text, With<GameModeDescription>>,
+) {
+    let mut pressed_mode = None;
+    for (interaction, btn) in &interaction_q {
+        if *interaction == Interaction::Pressed {
+            pressed_mode = Some(btn.0);
+        }
+    }
+
+    let Some(mode) = pressed_mode else { return };
+    settings.game_mode = mode;
+
+    for (mode_btn, mut bg) in &mut all_mode_btns {
+        *bg = if mode_btn.0 == settings.game_mode {
+            BackgroundColor(Color::srgb(0.25, 0.45, 0.70))
+        } else {
+            BackgroundColor(Color::srgb(0.18, 0.18, 0.24))
+        };
+    }
+
+    for mut text in &mut desc_q {
+        **text = mode.description().to_string();
+    }
+}
+
 pub fn lobby_button_hover(
     mut interaction_q: Query<
         (&Interaction, &mut BackgroundColor),
@@ -332,6 +410,7 @@ pub fn lobby_button_hover(
             Without<MapTypeButton>,
             Without<PlayerCountButton>,
             Without<CivButton>,
+            Without<GameModeButton>,
         ),
     >,
 ) {

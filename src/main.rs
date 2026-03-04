@@ -26,10 +26,46 @@ pub enum GameState {
     InGame,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GameMode {
+    Conquest,
+    WonderRace,
+    Regicide,
+}
+
+impl Default for GameMode {
+    fn default() -> Self { Self::Conquest }
+}
+
+impl GameMode {
+    pub const ALL: [GameMode; 3] = [
+        GameMode::Conquest,
+        GameMode::WonderRace,
+        GameMode::Regicide,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GameMode::Conquest => "Conquest",
+            GameMode::WonderRace => "Wonder Race",
+            GameMode::Regicide => "Regicide",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            GameMode::Conquest => "Destroy all enemy buildings and units to win.",
+            GameMode::WonderRace => "Build a Wonder and defend it for 200 seconds, or collect all relics for 200 seconds.",
+            GameMode::Regicide => "Protect your King! Lose your King and you lose the game.",
+        }
+    }
+}
+
 #[derive(Resource)]
 pub struct GameSettings {
     pub map_type: map::generation::MapType,
     pub num_players: usize,
+    pub game_mode: GameMode,
 }
 
 impl Default for GameSettings {
@@ -37,6 +73,7 @@ impl Default for GameSettings {
         Self {
             map_type: map::generation::MapType::Arabia,
             num_players: 2,
+            game_mode: GameMode::Conquest,
         }
     }
 }
