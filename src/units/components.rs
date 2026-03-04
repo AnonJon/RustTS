@@ -107,6 +107,9 @@ pub enum UnitState {
     Constructing {
         building: Entity,
     },
+    Repairing {
+        building: Entity,
+    },
     Dead,
 }
 
@@ -160,3 +163,9 @@ pub struct RelicCarrier(pub Entity);
 
 #[derive(Component)]
 pub struct Relic;
+
+#[derive(Component)]
+pub struct DeathTimer(pub Timer);
+
+#[derive(Component)]
+pub struct RepairTarget(pub Entity);

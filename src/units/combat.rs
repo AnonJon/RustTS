@@ -93,16 +93,32 @@ pub fn chase_system(
 
 pub fn death_system(
     mut commands: Commands,
-    query: Query<(Entity, &Health, &Team), With<Unit>>,
+    query: Query<(Entity, &Health, &Team, &UnitState), (With<Unit>, Without<DeathTimer>)>,
+    mut dying: Query<(Entity, &mut DeathTimer, &mut Sprite), With<Unit>>,
+    time: Res<Time>,
     mut stats: ResMut<crate::ui::stats::GameStats>,
 ) {
-    for (entity, health, team) in &query {
-        if health.current <= 0.0 {
+    for (entity, health, team, state) in &query {
+        if health.current <= 0.0 && *state != UnitState::Dead {
             if team.0 == 0 {
                 stats.units_lost += 1;
             } else {
                 stats.enemy_units_killed += 1;
             }
+            commands.entity(entity)
+                .insert(UnitState::Dead)
+                .insert(DeathTimer(Timer::from_seconds(3.0, TimerMode::Once)))
+                .remove::<AttackTarget>()
+                .remove::<MoveTarget>()
+                .remove::<Selected>();
+        }
+    }
+
+    for (entity, mut timer, mut sprite) in &mut dying {
+        timer.0.tick(time.delta());
+        let alpha = 1.0 - timer.0.fraction();
+        sprite.color = Color::srgba(0.5, 0.5, 0.5, alpha * 0.7);
+        if timer.0.just_finished() {
             commands.entity(entity).despawn();
         }
     }
@@ -301,7 +317,7 @@ pub fn carry_indicator_system(
         );
 
         if carrying.amount > 0 {
-            let fraction = carrying.amount as f32 / Carrying::MAX_CARRY as f32;
+            let fraction = carrying.amount as f32 / carrying.max_carry as f32;
             let fill_width = bar_width * fraction;
             let fill_center = Vec2::new(
                 pos.x - (bar_width - fill_width) / 2.0,

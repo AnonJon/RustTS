@@ -60,9 +60,14 @@ impl Plugin for BuildingPlugin {
                 garrison_arrow_bonus_system,
                 building_selection_system,
                 keyboard_training_system,
+            ).run_if(in_state(GameState::InGame)))
+            .add_systems(Update, (
                 rally_point_system,
+                repair_command_system,
+                repair_system,
                 research::research_system,
                 research::keyboard_research_system,
+                research::apply_villager_tech_bonuses,
                 enter_placement_mode,
                 update_ghost_position,
                 place_building_system,
@@ -147,9 +152,14 @@ pub fn spawn_building(
         entity_cmds.insert(TowerAttack::watch_tower());
     }
 
+    if kind == BuildingKind::TownCenter && !under_construction {
+        entity_cmds.insert(TowerAttack::town_center());
+    }
+
     if kind == BuildingKind::Castle && !under_construction {
         entity_cmds.insert(TowerAttack {
             range: 10.0,
+            base_pierce_damage: 11.0,
             pierce_damage: 11.0,
             cooldown: Timer::from_seconds(1.5, TimerMode::Repeating),
         });
@@ -186,7 +196,7 @@ pub fn spawn_building(
     }
 
     let is_research_bld = matches!(kind,
-        BuildingKind::Blacksmith | BuildingKind::University
+        BuildingKind::TownCenter | BuildingKind::Blacksmith | BuildingKind::University
         | BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill
     );
     if is_research_bld && !under_construction {

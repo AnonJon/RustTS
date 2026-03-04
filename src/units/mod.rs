@@ -23,7 +23,8 @@ pub struct UnitPlugin;
 
 impl Plugin for UnitPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreStartup, load_unit_sprites)
+        app.init_resource::<selection::ControlGroups>()
+            .add_systems(PreStartup, load_unit_sprites)
             .add_systems(OnEnter(GameState::InGame), spawn_initial_units.after(generate_map_config))
             .add_systems(Update, (
                 handle_selection_click,
@@ -49,6 +50,7 @@ impl Plugin for UnitPlugin {
                 animation_system,
                 facing_system,
                 separation_system,
+                selection::control_group_system,
             ).run_if(in_state(GameState::InGame)))
             .add_systems(Update, (
                 monk::monk_heal_system,

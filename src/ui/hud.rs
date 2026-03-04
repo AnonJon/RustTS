@@ -20,6 +20,9 @@ pub struct GoldText;
 pub struct StoneText;
 
 #[derive(Component)]
+pub struct PopText;
+
+#[derive(Component)]
 pub struct UnitInfoPanel;
 
 #[derive(Component)]
@@ -58,6 +61,7 @@ pub fn setup_hud(mut commands: Commands) {
         spawn_resource_label(parent, "Wood: 0", WoodText);
         spawn_resource_label(parent, "Gold: 0", GoldText);
         spawn_resource_label(parent, "Stone: 0", StoneText);
+        spawn_resource_label(parent, "Pop: 0/5", PopText);
     });
 
     // Bottom-left info panel
@@ -147,10 +151,12 @@ fn spawn_resource_label(parent: &mut ChildSpawnerCommands, text: &str, marker: i
 
 pub fn update_resource_display(
     resources: Res<PlayerResources>,
-    mut food_q: Query<&mut Text, (With<FoodText>, Without<WoodText>, Without<GoldText>, Without<StoneText>)>,
-    mut wood_q: Query<&mut Text, (With<WoodText>, Without<FoodText>, Without<GoldText>, Without<StoneText>)>,
-    mut gold_q: Query<&mut Text, (With<GoldText>, Without<FoodText>, Without<WoodText>, Without<StoneText>)>,
-    mut stone_q: Query<&mut Text, (With<StoneText>, Without<FoodText>, Without<WoodText>, Without<GoldText>)>,
+    population: Res<crate::resources::components::Population>,
+    mut food_q: Query<&mut Text, (With<FoodText>, Without<WoodText>, Without<GoldText>, Without<StoneText>, Without<PopText>)>,
+    mut wood_q: Query<&mut Text, (With<WoodText>, Without<FoodText>, Without<GoldText>, Without<StoneText>, Without<PopText>)>,
+    mut gold_q: Query<&mut Text, (With<GoldText>, Without<FoodText>, Without<WoodText>, Without<StoneText>, Without<PopText>)>,
+    mut stone_q: Query<&mut Text, (With<StoneText>, Without<FoodText>, Without<WoodText>, Without<GoldText>, Without<PopText>)>,
+    mut pop_q: Query<&mut Text, (With<PopText>, Without<FoodText>, Without<WoodText>, Without<GoldText>, Without<StoneText>)>,
 ) {
     if let Ok(mut text) = food_q.single_mut() {
         **text = format!("Food: {}", resources.food);
@@ -163,6 +169,9 @@ pub fn update_resource_display(
     }
     if let Ok(mut text) = stone_q.single_mut() {
         **text = format!("Stone: {}", resources.stone);
+    }
+    if let Ok(mut text) = pop_q.single_mut() {
+        **text = format!("Pop: {}/{}", population.current, population.cap);
     }
 }
 
@@ -291,7 +300,7 @@ fn format_unit_state(state: &UnitState, carrying: Option<&Carrying>) -> String {
                 Some(ResourceKind::Stone) => "Stone",
                 None => "",
             };
-            format!("  Carrying: {}/{} {}", c.amount, Carrying::MAX_CARRY, kind_name)
+            format!("  Carrying: {}/{} {}", c.amount, c.max_carry, kind_name)
         } else {
             String::new()
         }
@@ -311,7 +320,7 @@ fn format_unit_state(state: &UnitState, carrying: Option<&Carrying>) -> String {
                 ResourceKind::Stone => "Stone",
             }).unwrap_or("...");
             let amt = carrying.map(|c| c.amount).unwrap_or(0);
-            format!("Gathering {kind_name} ({amt}/{})", Carrying::MAX_CARRY)
+            format!("Gathering {kind_name} ({amt}/{})", Carrying::BASE_CARRY)
         }
         UnitState::Returning { .. } => {
             let amt = carrying.map(|c| c.amount).unwrap_or(0);
@@ -319,9 +328,10 @@ fn format_unit_state(state: &UnitState, carrying: Option<&Carrying>) -> String {
         }
         UnitState::FarmingAt { .. } => {
             let amt = carrying.map(|c| c.amount).unwrap_or(0);
-            format!("Farming ({amt}/{})", Carrying::MAX_CARRY)
+            format!("Farming ({amt}/{})", Carrying::BASE_CARRY)
         }
         UnitState::Constructing { .. } => "Building...".to_string(),
+        UnitState::Repairing { .. } => "Repairing...".to_string(),
         UnitState::Dead => "Dead".to_string(),
     }
 }

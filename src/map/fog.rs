@@ -1,11 +1,30 @@
 use bevy::prelude::*;
-use super::{GridPosition, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE};
+use bevy::asset::RenderAssetUsages;
+use bevy::image::{ImageSampler, ImageFilterMode, ImageSamplerDescriptor};
+use super::{GridPosition, MAP_WIDTH, MAP_HEIGHT};
 use crate::units::components::{Unit, Team};
 use crate::buildings::components::Building;
 
 /// Line of sight radius in tiles.
 #[derive(Component)]
 pub struct LineOfSight(pub u32);
+
+/// Marker to exclude the fog sprite from depth sorting.
+#[derive(Component)]
+pub struct FogOverlayMarker;
+
+const FOG_TEX_W: u32 = 192;
+const FOG_TEX_H: u32 = 96;
+const FOG_WORLD_X_MIN: f32 = -64.0;
+const FOG_WORLD_Y_MAX: f32 = 1536.0;
+const FOG_WORLD_W: f32 = 6144.0;
+const FOG_WORLD_H: f32 = 3072.0;
+const FOG_PX_SIZE: f32 = 32.0; // world units per texture pixel
+
+#[derive(Resource)]
+pub struct FogOverlay {
+    pub texture: Handle<Image>,
+}
 
 #[derive(Resource)]
 pub struct FogOfWar {
@@ -128,43 +147,116 @@ pub fn apply_fog_visibility_system(
     }
 }
 
-/// Draw fog overlay using gizmos — dark overlay on unexplored/non-visible tiles.
-/// This is a lightweight approach; a proper implementation would use a shader or overlay tilemap.
-pub fn draw_fog_overlay(
-    fog: Res<FogOfWar>,
-    mut gizmos: Gizmos,
+pub fn setup_fog_overlay(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
 ) {
-    let w = MAP_WIDTH as usize;
-    let h = MAP_HEIGHT as usize;
+    let pixel_count = (FOG_TEX_W * FOG_TEX_H * 4) as usize;
+    let mut data = vec![0u8; pixel_count];
+    // Start fully opaque black
+    for i in 0..(FOG_TEX_W * FOG_TEX_H) as usize {
+        data[i * 4 + 3] = 255;
+    }
 
-    for x in 0..w {
-        for y in 0..h {
-            let grid = GridPosition::new(x as i32, y as i32);
-            let world = grid.to_world();
+    let mut img = Image::new(
+        bevy::render::render_resource::Extent3d {
+            width: FOG_TEX_W,
+            height: FOG_TEX_H,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        data,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
+    );
+    img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        ..default()
+    });
 
-            if fog.visible[x][y] > 0 {
-                // Fully visible — no overlay
-                continue;
-            }
+    let texture = images.add(img);
+    let center_x = FOG_WORLD_X_MIN + FOG_WORLD_W / 2.0;
+    let center_y = FOG_WORLD_Y_MAX - FOG_WORLD_H / 2.0;
 
-            let color = if fog.explored[x][y] {
-                // Explored but not currently visible — dim overlay
-                Color::srgba(0.0, 0.0, 0.0, 0.5)
+    commands.spawn((
+        FogOverlayMarker,
+        Sprite {
+            image: texture.clone(),
+            custom_size: Some(Vec2::new(FOG_WORLD_W, FOG_WORLD_H)),
+            ..default()
+        },
+        Transform::from_xyz(center_x, center_y, 100.0),
+    ));
+
+    commands.insert_resource(FogOverlay { texture });
+}
+
+pub fn update_fog_texture(
+    fog: Res<FogOfWar>,
+    overlay: Res<FogOverlay>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(img) = images.get_mut(&overlay.texture) else { return };
+
+    let w = FOG_TEX_W as usize;
+    let h = FOG_TEX_H as usize;
+    let map_w = MAP_WIDTH as i32;
+    let map_h = MAP_HEIGHT as i32;
+
+    let mut alpha_buf = vec![0u8; w * h];
+
+    for py in 0..h {
+        for px in 0..w {
+            let world_x = FOG_WORLD_X_MIN + (px as f32 + 0.5) * FOG_PX_SIZE;
+            let world_y = FOG_WORLD_Y_MAX - (py as f32 + 0.5) * FOG_PX_SIZE;
+            let grid = GridPosition::from_world(Vec2::new(world_x, world_y));
+
+            let a = if grid.x < 0 || grid.y < 0 || grid.x >= map_w || grid.y >= map_h {
+                255
             } else {
-                // Never explored — full black
-                Color::srgba(0.0, 0.0, 0.0, 0.85)
+                let gx = grid.x as usize;
+                let gy = grid.y as usize;
+                if fog.visible[gx][gy] > 0 {
+                    0
+                } else if fog.explored[gx][gy] {
+                    140
+                } else {
+                    255
+                }
             };
-
-            // Draw a diamond shape to match isometric tiles
-            let half_w = TILE_SIZE / 2.0; // 64
-            let half_h = TILE_SIZE / 4.0; // 32
-
-            // Draw as a filled rect approximation
-            gizmos.rect_2d(
-                Isometry2d::from_translation(world),
-                Vec2::new(half_w * 2.0, half_h * 2.0),
-                color,
-            );
+            alpha_buf[py * w + px] = a;
         }
+    }
+
+    // 3-pass box blur on the alpha channel
+    let mut tmp = vec![0u8; w * h];
+    for _ in 0..3 {
+        for y in 0..h {
+            for x in 0..w {
+                let mut sum: u32 = 0;
+                let mut count: u32 = 0;
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        if nx >= 0 && nx < w as i32 && ny >= 0 && ny < h as i32 {
+                            sum += alpha_buf[ny as usize * w + nx as usize] as u32;
+                            count += 1;
+                        }
+                    }
+                }
+                tmp[y * w + x] = (sum / count) as u8;
+            }
+        }
+        alpha_buf.copy_from_slice(&tmp);
+    }
+
+    let data = img.data.as_mut().expect("fog texture should be accessible");
+    for i in 0..(w * h) {
+        data[i * 4] = 0;
+        data[i * 4 + 1] = 0;
+        data[i * 4 + 2] = 0;
+        data[i * 4 + 3] = alpha_buf[i];
     }
 }

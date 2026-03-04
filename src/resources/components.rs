@@ -21,17 +21,24 @@ pub struct FloatingText {
     pub velocity: Vec2,
 }
 
-#[derive(Component, Default)]
+#[derive(Component)]
 pub struct Carrying {
     pub kind: Option<ResourceKind>,
     pub amount: u32,
+    pub max_carry: u32,
+}
+
+impl Default for Carrying {
+    fn default() -> Self {
+        Self { kind: None, amount: 0, max_carry: Self::BASE_CARRY }
+    }
 }
 
 impl Carrying {
-    pub const MAX_CARRY: u32 = 10;
+    pub const BASE_CARRY: u32 = 10;
 
     pub fn is_full(&self) -> bool {
-        self.amount >= Self::MAX_CARRY
+        self.amount >= self.max_carry
     }
 
     pub fn has_resources(&self) -> bool {
@@ -99,9 +106,17 @@ pub struct Population {
     pub cap: u32,
 }
 
+impl Population {
+    pub const MAX_POP: u32 = 200;
+
+    pub fn has_room(&self, cost: u32) -> bool {
+        self.current + cost <= self.cap.min(Self::MAX_POP)
+    }
+}
+
 impl Default for Population {
     fn default() -> Self {
-        Self { current: 0, cap: 5 } // TC provides initial 5
+        Self { current: 0, cap: 5 }
     }
 }
 

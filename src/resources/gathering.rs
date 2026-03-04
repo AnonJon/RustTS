@@ -69,7 +69,7 @@ pub fn gathering_system(
             timer.0.tick(time.delta());
             if timer.0.just_finished() {
                 let room = if let Some(ref c) = carrying {
-                    Carrying::MAX_CARRY.saturating_sub(c.amount).min(5)
+                    c.max_carry.saturating_sub(c.amount).min(5)
                 } else {
                     5
                 };

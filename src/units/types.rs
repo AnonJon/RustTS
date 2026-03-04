@@ -2,8 +2,9 @@ use bevy::prelude::*;
 use super::components::*;
 use super::animation::AnimationConfig;
 use crate::map::GridPosition;
+use crate::map::fog::LineOfSight;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnitKind {
     Villager,
     Militia,
@@ -275,6 +276,15 @@ impl UnitKind {
         }
     }
 
+    pub fn line_of_sight(self) -> u32 {
+        match self {
+            UnitKind::ScoutCavalry => 10,
+            UnitKind::Archer | UnitKind::Longbowman | UnitKind::Mangudai => 6,
+            UnitKind::Skirmisher => 6,
+            _ => 4,
+        }
+    }
+
     pub fn animation_config(self) -> AnimationConfig {
         AnimationConfig::new(2, 4, 3, 8.0)
     }
@@ -316,12 +326,14 @@ pub fn spawn_unit(
 
     let mut ec = commands.spawn((
         Unit,
+        kind,
         team,
         grid,
         Speed(stats.speed),
         Health::new(stats.hp),
         Armor::new(stats.melee_armor, stats.pierce_armor),
         stats.unit_class,
+        LineOfSight(kind.line_of_sight()),
         AttackStats {
             melee_damage: stats.melee_damage,
             pierce_damage: stats.pierce_damage,

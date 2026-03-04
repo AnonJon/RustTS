@@ -5,6 +5,10 @@ use crate::resources::components::PlayerResources;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Technology {
+    // Town Center
+    Loom,
+    Wheelbarrow,
+    HandCart,
     // Blacksmith - melee attack
     Forging,
     IronCasting,
@@ -40,6 +44,9 @@ pub enum Technology {
 impl Technology {
     pub fn cost(self) -> (u32, u32, u32, u32) {
         match self {
+            Technology::Loom => (0, 0, 50, 0),
+            Technology::Wheelbarrow => (50, 50, 0, 0),
+            Technology::HandCart => (300, 200, 0, 0),
             Technology::Forging => (150, 0, 0, 0),
             Technology::IronCasting => (0, 0, 220, 0),
             Technology::BlastFurnace => (0, 0, 275, 0),
@@ -67,6 +74,9 @@ impl Technology {
 
     pub fn research_time(self) -> f32 {
         match self {
+            Technology::Loom => 25.0,
+            Technology::Wheelbarrow => 75.0,
+            Technology::HandCart => 55.0,
             Technology::Forging | Technology::ScaleMailArmor
             | Technology::Fletching | Technology::PaddedArcherArmor => 25.0,
             Technology::IronCasting | Technology::ChainMailArmor
@@ -83,6 +93,9 @@ impl Technology {
 
     pub fn required_age(self) -> Age {
         match self {
+            Technology::Loom => Age::Dark,
+            Technology::Wheelbarrow => Age::Feudal,
+            Technology::HandCart => Age::Castle,
             Technology::Forging | Technology::ScaleMailArmor
             | Technology::Fletching | Technology::PaddedArcherArmor
             | Technology::DoubleBitAxe | Technology::GoldMining
@@ -100,6 +113,7 @@ impl Technology {
 
     pub fn researched_at(self) -> BuildingKind {
         match self {
+            Technology::Loom | Technology::Wheelbarrow | Technology::HandCart => BuildingKind::TownCenter,
             Technology::Forging | Technology::IronCasting | Technology::BlastFurnace
             | Technology::ScaleMailArmor | Technology::ChainMailArmor | Technology::PlateMailArmor
             | Technology::Fletching | Technology::BodkinArrow | Technology::Bracer
@@ -149,6 +163,32 @@ impl ResearchedTechnologies {
         if self.techs.contains(&Technology::PaddedArcherArmor) { bonus += 1.0; }
         if self.techs.contains(&Technology::LeatherArcherArmor) { bonus += 1.0; }
         if self.techs.contains(&Technology::RingArcherArmor) { bonus += 1.0; }
+        bonus
+    }
+
+    pub fn has_loom(&self) -> bool {
+        self.techs.contains(&Technology::Loom)
+    }
+
+    pub fn villager_hp_bonus(&self) -> f32 {
+        if self.has_loom() { 15.0 } else { 0.0 }
+    }
+
+    pub fn villager_pierce_armor_bonus(&self) -> f32 {
+        if self.has_loom() { 1.0 } else { 0.0 }
+    }
+
+    pub fn villager_speed_multiplier(&self) -> f32 {
+        let mut mult = 1.0;
+        if self.techs.contains(&Technology::Wheelbarrow) { mult *= 1.10; }
+        if self.techs.contains(&Technology::HandCart) { mult *= 1.10; }
+        mult
+    }
+
+    pub fn villager_carry_bonus(&self) -> u32 {
+        let mut bonus = 0;
+        if self.techs.contains(&Technology::Wheelbarrow) { bonus += 3; }
+        if self.techs.contains(&Technology::HandCart) { bonus += 3; }
         bonus
     }
 }
@@ -223,8 +263,40 @@ pub fn keyboard_research_system(
     }
 }
 
+pub fn apply_villager_tech_bonuses(
+    techs: Res<ResearchedTechnologies>,
+    mut villagers: Query<(&mut crate::units::components::Health, &mut crate::units::components::Armor, &mut crate::units::components::Speed, &mut crate::resources::components::Carrying, &crate::units::types::UnitKind), With<crate::units::components::Unit>>,
+) {
+    let hp_bonus = techs.villager_hp_bonus();
+    let pierce_bonus = techs.villager_pierce_armor_bonus();
+    let speed_mult = techs.villager_speed_multiplier();
+    let carry_bonus = techs.villager_carry_bonus();
+
+    for (mut health, mut armor, mut speed, mut carrying, kind) in &mut villagers {
+        if *kind != crate::units::types::UnitKind::Villager { continue; }
+
+        let base_hp = 25.0;
+        let new_max = base_hp + hp_bonus;
+        if (health.max - new_max).abs() > 0.01 {
+            let was_full = health.current >= health.max - 0.01;
+            health.max = new_max;
+            if was_full { health.current = new_max; }
+        }
+
+        armor.pierce = pierce_bonus;
+
+        let base_speed = 0.8;
+        speed.0 = base_speed * speed_mult;
+
+        carrying.max_carry = crate::resources::components::Carrying::BASE_CARRY + carry_bonus;
+    }
+}
+
 pub fn available_techs(kind: BuildingKind, researched: &ResearchedTechnologies, age: &CurrentAge) -> Vec<Technology> {
     let all = match kind {
+        BuildingKind::TownCenter => vec![
+            Technology::Loom, Technology::Wheelbarrow, Technology::HandCart,
+        ],
         BuildingKind::Blacksmith => vec![
             Technology::Forging, Technology::IronCasting, Technology::BlastFurnace,
             Technology::ScaleMailArmor, Technology::ChainMailArmor, Technology::PlateMailArmor,

@@ -16,6 +16,7 @@ pub struct ResourcePlugin;
 impl Plugin for ResourcePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<market::MarketPrices>()
+            .init_resource::<Population>()
             .insert_resource(PlayerResources {
                 food: 200,
                 wood: 200,
@@ -42,6 +43,7 @@ impl Plugin for ResourcePlugin {
                 animals::animal_flee_system,
                 animals::animal_movement_system,
                 animals::animal_death_system,
+                update_population_system,
             ).run_if(in_state(GameState::InGame)));
     }
 }
@@ -260,6 +262,28 @@ fn spawn_resource_nodes(
             ));
         }
     }
+}
+
+fn update_population_system(
+    mut pop: ResMut<Population>,
+    units: Query<(&crate::units::components::Team, &crate::units::types::UnitKind), With<crate::units::components::Unit>>,
+    buildings: Query<(&crate::units::components::Team, &crate::buildings::components::Building), Without<crate::buildings::components::UnderConstruction>>,
+) {
+    let mut current = 0u32;
+    let mut cap = 0u32;
+
+    for (team, kind) in &units {
+        if team.0 != 0 { continue; }
+        current += kind.population_cost();
+    }
+
+    for (team, building) in &buildings {
+        if team.0 != 0 { continue; }
+        cap += building.kind.population_support();
+    }
+
+    pop.current = current;
+    pop.cap = cap.min(Population::MAX_POP);
 }
 
 fn create_resource_texture(images: &mut Assets<Image>, color: [u8; 4]) -> Handle<Image> {

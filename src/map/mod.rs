@@ -1,6 +1,7 @@
 pub mod terrain;
 pub mod coords;
 pub mod generation;
+pub mod fog;
 
 use bevy::prelude::*;
 use bevy::image::{ImageSampler, ImageFilterMode, ImageSamplerDescriptor};
@@ -24,18 +25,24 @@ const TERRAIN_COUNT: u32 = 4;
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TilemapPlugin)
+            .init_resource::<fog::FogOfWar>()
             .add_systems(
                 OnEnter(GameState::InGame),
-                (generate_map_config, setup_tilemap).chain(),
+                (generate_map_config, setup_tilemap, fog::setup_fog_overlay).chain(),
             )
-            .add_systems(PostUpdate, depth_sort_system.run_if(in_state(GameState::InGame)));
+            .add_systems(PostUpdate, depth_sort_system.run_if(in_state(GameState::InGame)))
+            .add_systems(Update, (
+                fog::update_fog_system,
+                fog::apply_fog_visibility_system.after(fog::update_fog_system),
+                fog::update_fog_texture.after(fog::update_fog_system),
+            ).run_if(in_state(GameState::InGame)));
     }
 }
 
 fn depth_sort_system(
     mut query: Query<
         &mut Transform,
-        (With<Sprite>, Without<bevy_ecs_tilemap::tiles::TilePos>, Without<Node>),
+        (With<Sprite>, Without<bevy_ecs_tilemap::tiles::TilePos>, Without<Node>, Without<fog::FogOverlayMarker>),
     >,
 ) {
     // In the diamond iso projection world_x = 64*(x+y), so higher world_x

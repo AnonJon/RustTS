@@ -4,7 +4,7 @@
 
 - [ ] Audio -- `play_selection_sound` and `play_attack_sound` are empty; no sounds play
 - [ ] Animation -- `AnimationConfig` exists but no units use sprite sheets; facing_system works
-- [ ] Death state -- `UnitState::Dead` is never used; units despawn instantly
+- [x] Death state -- units now enter `UnitState::Dead` with 3s corpse fade before despawn
 
 ---
 
@@ -12,10 +12,11 @@
 
 ### Technologies / Upgrades
 
+- [x] Loom, Wheelbarrow, Hand Cart -- researched at Town Center, affects villager HP/armor/speed/carry
 - [ ] `Blacksmith` building: upgrades attack and armor
 - [ ] Unit upgrades (e.g. Militia -> Man-at-Arms, Archer -> Crossbowman)
-- [ ] Research costs resources and takes time
-- [ ] Upgraded stats apply to existing and future units
+- [x] Research costs resources and takes time
+- [x] Upgraded stats apply to existing and future units
 
 ### AI Improvements
 
@@ -29,7 +30,17 @@
 ## UI
 
 - [ ] Training queue visual (show icons in bottom panel)
-- [ ] Unit group hotkeys (ctrl+1 to assign, 1 to select)
+- [x] Unit group hotkeys (ctrl+1 to assign, 1 to select, double-tap to center camera)
+
+---
+
+## Phase 1 Complete
+
+- [x] Population cap -- Houses (+5 pop), TC (+5), Castle (+20), max 200, enforced on training
+- [x] Fog of war -- wired into MapPlugin, units have LineOfSight, enemy entities hidden in fog
+- [x] Building repair -- villagers right-click damaged buildings to repair at 50% build cost
+- [x] TC arrows -- Town Center fires arrows (base 5 pierce, +garrison archer bonus)
+- [x] Control groups -- Ctrl+1..0 assign, 1..0 recall, double-tap centers camera
 
 ---
 
@@ -38,9 +49,7 @@
 - [ ] Actual sprite sheet art (units are colored circles, buildings mostly procedural)
 - [ ] Background music
 - [ ] SFX: selection acknowledgment, attack, gathering, death
-- [ ] Fog of war
 - [ ] Multiple terrain layers (elevation, forests blocking LOS)
-- [ ] Population cap (houses increase cap)
 - [ ] Relics / map control objectives
 
 ---

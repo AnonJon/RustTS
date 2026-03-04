@@ -96,9 +96,14 @@ pub fn construction_system(
             commands.entity(building_e).insert(TowerAttack::watch_tower());
         }
 
+        if bld_kind == BuildingKind::TownCenter {
+            commands.entity(building_e).insert(TowerAttack::town_center());
+        }
+
         if bld_kind == BuildingKind::Castle {
             commands.entity(building_e).insert(TowerAttack {
                 range: 10.0,
+                base_pierce_damage: 11.0,
                 pierce_damage: 11.0,
                 cooldown: Timer::from_seconds(1.5, TimerMode::Repeating),
             });
@@ -134,7 +139,7 @@ pub fn construction_system(
         }
 
         let is_research_bld = matches!(bld_kind,
-            BuildingKind::Blacksmith | BuildingKind::University
+            BuildingKind::TownCenter | BuildingKind::Blacksmith | BuildingKind::University
             | BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill
         );
         if is_research_bld {
@@ -236,12 +241,18 @@ pub fn enqueue_unit(
     kind: UnitKind,
     resources: &mut PlayerResources,
     current_age: &CurrentAge,
+    population: &crate::resources::components::Population,
 ) -> bool {
     if queue.queue.len() >= 5 {
         return false;
     }
 
     if current_age.0 < kind.required_age() {
+        return false;
+    }
+
+    let queued_pop: u32 = queue.queue.iter().map(|s| s.kind.population_cost()).sum();
+    if !population.has_room(queued_pop + kind.population_cost()) {
         return false;
     }
 
@@ -447,6 +458,7 @@ pub fn keyboard_training_system(
     mut age_progress: ResMut<AgeUpProgress>,
     mut commands: Commands,
     player_civ: Res<crate::civilization::PlayerCivilization>,
+    population: Res<crate::resources::components::Population>,
 ) {
     for (building, mut queue, team) in &mut buildings_selected {
         if team.0 != 0 { continue; }
@@ -461,12 +473,12 @@ pub fn keyboard_training_system(
 
         if keys.just_pressed(KeyCode::KeyQ) {
             if let Some(&&kind) = trainable.first() {
-                enqueue_unit(&mut commands, Entity::PLACEHOLDER, &mut queue, kind, &mut resources, &age);
+                enqueue_unit(&mut commands, Entity::PLACEHOLDER, &mut queue, kind, &mut resources, &age, &population);
             }
         }
         if keys.just_pressed(KeyCode::KeyW) {
             if let Some(&&kind) = trainable.get(1) {
-                enqueue_unit(&mut commands, Entity::PLACEHOLDER, &mut queue, kind, &mut resources, &age);
+                enqueue_unit(&mut commands, Entity::PLACEHOLDER, &mut queue, kind, &mut resources, &age, &population);
             }
         }
 
@@ -614,6 +626,111 @@ pub fn garrison_eject_on_death_system(
     }
 }
 
+pub fn repair_command_system(
+    mut commands: Commands,
+    mouse: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    camera_q: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
+    selected_villagers: Query<(Entity, &Team), (With<Unit>, With<Selected>, With<crate::resources::components::Carrying>)>,
+    buildings: Query<(Entity, &Transform, &Building, &Health, &Team)>,
+) {
+    if !mouse.just_pressed(MouseButton::Right) {
+        return;
+    }
+
+    let Ok(window) = windows.single() else { return };
+    let Ok((camera, cam_transform)) = camera_q.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else { return };
+    let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
+
+    for (bld_e, bld_tf, building, health, bld_team) in &buildings {
+        if bld_team.0 != 0 { continue; }
+        if health.current >= health.max { continue; }
+
+        let (tw, th) = building.kind.tile_size();
+        let half_w = tw as f32 * TILE_SIZE / 2.0;
+        let half_h = th as f32 * TILE_SIZE / 2.0;
+        let bld_pos = bld_tf.translation.truncate();
+
+        if (world_pos.x - bld_pos.x).abs() > half_w + 20.0
+            || (world_pos.y - bld_pos.y).abs() > half_h + 20.0
+        {
+            continue;
+        }
+
+        for (villager_e, team) in &selected_villagers {
+            if team.0 != 0 { continue; }
+            commands.entity(villager_e)
+                .remove::<AttackTarget>()
+                .insert(RepairTarget(bld_e))
+                .insert(MoveTarget(bld_pos))
+                .insert(UnitState::Repairing { building: bld_e });
+        }
+        return;
+    }
+}
+
+const REPAIR_RANGE: f32 = TILE_SIZE * 2.0;
+const REPAIR_RATE: f32 = 25.0;
+
+pub fn repair_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    repairers: Query<(Entity, &Transform, &UnitState, &RepairTarget), With<Unit>>,
+    mut buildings: Query<(Entity, &Transform, &mut Health, &Building), Without<Unit>>,
+    mut resources: ResMut<PlayerResources>,
+) {
+    let dt = time.delta_secs();
+    if dt == 0.0 { return; }
+
+    for (villager_e, villager_tf, state, repair_target) in &repairers {
+        let UnitState::Repairing { building } = state else {
+            commands.entity(villager_e).remove::<RepairTarget>();
+            continue;
+        };
+
+        if *building != repair_target.0 {
+            commands.entity(villager_e).remove::<RepairTarget>();
+            continue;
+        }
+
+        let Ok((_, bld_tf, mut health, bld)) = buildings.get_mut(repair_target.0) else {
+            commands.entity(villager_e)
+                .remove::<RepairTarget>()
+                .insert(UnitState::Idle);
+            continue;
+        };
+
+        if health.current >= health.max {
+            commands.entity(villager_e)
+                .remove::<RepairTarget>()
+                .insert(UnitState::Idle);
+            continue;
+        }
+
+        let dist = villager_tf.translation.truncate()
+            .distance(bld_tf.translation.truncate());
+        if dist > REPAIR_RANGE {
+            continue;
+        }
+
+        let hp_to_repair = REPAIR_RATE * dt;
+        let (f, w, g, s) = bld.kind.build_cost();
+        let total_cost = (f + w + g + s) as f32;
+        let cost_fraction = (hp_to_repair / health.max) * total_cost * 0.5;
+        let wood_cost = (cost_fraction * w as f32 / total_cost.max(1.0)) as u32;
+        let gold_cost = (cost_fraction * g as f32 / total_cost.max(1.0)) as u32;
+
+        if wood_cost > 0 && resources.wood < wood_cost { continue; }
+        if gold_cost > 0 && resources.gold < gold_cost { continue; }
+
+        resources.wood = resources.wood.saturating_sub(wood_cost);
+        resources.gold = resources.gold.saturating_sub(gold_cost);
+
+        health.current = (health.current + hp_to_repair).min(health.max);
+    }
+}
+
 pub fn garrison_arrow_bonus_system(
     mut garrison_buildings: Query<(&GarrisonSlots, &mut TowerAttack), With<Building>>,
     archers: Query<(&AttackStats, &UnitClass), With<Unit>>,
@@ -627,6 +744,6 @@ pub fn garrison_arrow_bonus_system(
                 }
             }
         }
-        tower_attack.pierce_damage = 5.0 + bonus_arrows;
+        tower_attack.pierce_damage = tower_attack.base_pierce_damage + bonus_arrows;
     }
 }

@@ -4,6 +4,14 @@ use super::components::*;
 use crate::camera::MainCamera;
 
 #[derive(Resource, Default)]
+pub struct ControlGroups {
+    pub groups: [Vec<Entity>; 10],
+    last_tap: [Option<f64>; 10],
+}
+
+const DOUBLE_TAP_WINDOW: f64 = 0.4;
+
+#[derive(Resource, Default)]
 pub(crate) struct DragState {
     start: Option<Vec2>,
     current: Option<Vec2>,
@@ -493,6 +501,73 @@ pub fn handle_right_click_command(
                 .insert(MoveTarget(world_pos + offset))
                 .insert(MovementIntent::Move)
                 .insert(UnitState::Moving);
+        }
+    }
+}
+
+pub fn control_group_system(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut groups: ResMut<ControlGroups>,
+    selected: Query<Entity, With<Selected>>,
+    transforms: Query<&Transform, Without<MainCamera>>,
+    mut camera_q: Query<&mut Transform, (With<MainCamera>, Without<Unit>, Without<crate::buildings::components::Building>)>,
+    time: Res<Time>,
+    placement: Res<crate::buildings::placement::PlacementMode>,
+    units: Query<Entity, With<Unit>>,
+) {
+    if placement.active { return; }
+
+    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+
+    let digit_keys = [
+        KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5,
+        KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9, KeyCode::Digit0,
+    ];
+
+    for (idx, &key) in digit_keys.iter().enumerate() {
+        if !keys.just_pressed(key) { continue; }
+
+        if ctrl {
+            let entities: Vec<Entity> = selected.iter().collect();
+            groups.groups[idx] = entities;
+            groups.last_tap[idx] = None;
+        } else {
+            let now = time.elapsed_secs_f64();
+            let is_double = groups.last_tap[idx]
+                .map_or(false, |t| now - t < DOUBLE_TAP_WINDOW);
+
+            groups.last_tap[idx] = Some(now);
+
+            groups.groups[idx].retain(|e| units.contains(*e));
+
+            if groups.groups[idx].is_empty() { continue; }
+
+            let prev_selected: Vec<Entity> = selected.iter().collect();
+            for e in prev_selected {
+                commands.entity(e).remove::<Selected>();
+            }
+            for &e in &groups.groups[idx] {
+                commands.entity(e).insert(Selected);
+            }
+
+            if is_double {
+                let mut center = Vec2::ZERO;
+                let mut count = 0;
+                for &e in &groups.groups[idx] {
+                    if let Ok(tf) = transforms.get(e) {
+                        center += tf.translation.truncate();
+                        count += 1;
+                    }
+                }
+                if count > 0 {
+                    center /= count as f32;
+                    if let Ok(mut cam_tf) = camera_q.single_mut() {
+                        cam_tf.translation.x = center.x;
+                        cam_tf.translation.y = center.y;
+                    }
+                }
+            }
         }
     }
 }

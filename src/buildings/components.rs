@@ -48,6 +48,7 @@ pub struct AgeUpProgress {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildingKind {
     TownCenter,
+    House,
     Barracks,
     ArcheryRange,
     Stable,
@@ -69,9 +70,19 @@ pub enum BuildingKind {
 }
 
 impl BuildingKind {
+    pub fn population_support(self) -> u32 {
+        match self {
+            BuildingKind::House => 5,
+            BuildingKind::TownCenter => 5,
+            BuildingKind::Castle => 20,
+            _ => 0,
+        }
+    }
+
     pub fn build_cost(self) -> (u32, u32, u32, u32) {
         match self {
             BuildingKind::TownCenter => (0, 275, 0, 100),
+            BuildingKind::House => (0, 25, 0, 0),
             BuildingKind::Barracks => (0, 175, 0, 0),
             BuildingKind::ArcheryRange => (0, 175, 0, 0),
             BuildingKind::Stable => (0, 175, 0, 0),
@@ -96,6 +107,7 @@ impl BuildingKind {
     pub fn max_hp(self) -> f32 {
         match self {
             BuildingKind::TownCenter => 2400.0,
+            BuildingKind::House => 550.0,
             BuildingKind::Barracks => 1200.0,
             BuildingKind::ArcheryRange => 1200.0,
             BuildingKind::Stable => 1200.0,
@@ -120,6 +132,7 @@ impl BuildingKind {
     pub fn tile_size(self) -> (u32, u32) {
         match self {
             BuildingKind::TownCenter => (4, 4),
+            BuildingKind::House => (2, 2),
             BuildingKind::Castle => (4, 4),
             BuildingKind::Dock => (3, 3),
             BuildingKind::Farm => (3, 3),
@@ -149,6 +162,7 @@ impl BuildingKind {
     pub fn required_age(self) -> Age {
         match self {
             BuildingKind::TownCenter
+            | BuildingKind::House
             | BuildingKind::Barracks
             | BuildingKind::Farm
             | BuildingKind::LumberCamp
@@ -182,6 +196,7 @@ impl BuildingKind {
     pub fn armor(self) -> (f32, f32) {
         match self {
             BuildingKind::TownCenter => (3.0, 5.0),
+            BuildingKind::House => (0.0, 7.0),
             BuildingKind::Barracks | BuildingKind::ArcheryRange | BuildingKind::Stable => (1.0, 7.0),
             BuildingKind::WatchTower => (1.0, 8.0),
             BuildingKind::PalisadeWall => (0.0, 2.0),
@@ -199,6 +214,7 @@ impl BuildingKind {
     pub fn build_time(self) -> f32 {
         match self {
             BuildingKind::TownCenter => 150.0,
+            BuildingKind::House => 25.0,
             BuildingKind::Barracks => 50.0,
             BuildingKind::ArcheryRange => 50.0,
             BuildingKind::Stable => 50.0,
@@ -227,6 +243,7 @@ impl BuildingKind {
     pub fn color(self) -> [u8; 4] {
         match self {
             BuildingKind::TownCenter => [180, 140, 80, 255],
+            BuildingKind::House => [160, 130, 90, 255],
             BuildingKind::Barracks => [140, 60, 60, 255],
             BuildingKind::ArcheryRange => [60, 120, 60, 255],
             BuildingKind::Stable => [100, 80, 140, 255],
@@ -304,6 +321,7 @@ impl GarrisonSlots {
 #[derive(Component)]
 pub struct TowerAttack {
     pub range: f32,
+    pub base_pierce_damage: f32,
     pub pierce_damage: f32,
     pub cooldown: Timer,
 }
@@ -312,6 +330,16 @@ impl TowerAttack {
     pub fn watch_tower() -> Self {
         Self {
             range: 8.0,
+            base_pierce_damage: 5.0,
+            pierce_damage: 5.0,
+            cooldown: Timer::from_seconds(2.0, TimerMode::Repeating),
+        }
+    }
+
+    pub fn town_center() -> Self {
+        Self {
+            range: 6.0,
+            base_pierce_damage: 5.0,
             pierce_damage: 5.0,
             cooldown: Timer::from_seconds(2.0, TimerMode::Repeating),
         }
@@ -330,6 +358,13 @@ impl RelicStorage {
 }
 
 impl UnitKind {
+    pub fn population_cost(self) -> u32 {
+        match self {
+            UnitKind::BatteringRam | UnitKind::Mangonel => 3,
+            _ => 1,
+        }
+    }
+
     pub fn train_time(self) -> f32 {
         match self {
             UnitKind::Villager => 25.0,
