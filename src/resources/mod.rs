@@ -185,8 +185,8 @@ fn spawn_resource_nodes(
         .map(|path| asset_server.load(*path))
         .collect();
 
-    let gold_texture = create_resource_texture(&mut images, [255, 215, 0, 255]);
-    let stone_texture = create_resource_texture(&mut images, [140, 140, 140, 255]);
+    let gold_texture = load_resource_sprite(&mut images, "assets/sprites/resources/gold_mine.png", [255, 215, 0, 255]);
+    let stone_texture = load_resource_sprite(&mut images, "assets/sprites/resources/stone_mine.png", [140, 140, 140, 255]);
     let berry_texture = create_resource_texture(&mut images, [180, 40, 40, 255]);
 
     let mut tree_idx = 0usize;
@@ -200,6 +200,11 @@ fn spawn_resource_nodes(
             let grid = crate::map::GridPosition::new(x, y);
             let world = grid.to_world();
 
+            // Deterministic per-tile jitter so adjacent minerals overlap naturally
+            let hash = (x as u32).wrapping_mul(2654435761) ^ (y as u32).wrapping_mul(340573321);
+            let jx = ((hash & 0xFF) as f32 / 255.0 - 0.5) * 12.0;
+            let jy = (((hash >> 8) & 0xFF) as f32 / 255.0 - 0.5) * 8.0;
+
             let (image, size) = match cluster.kind {
                 ResourceKind::Wood => {
                     let handle = tree_handles[tree_idx % tree_handles.len()].clone();
@@ -208,9 +213,14 @@ fn spawn_resource_nodes(
                     );
                     (handle, Vec2::new(90.0, 103.0))
                 }
-                ResourceKind::Gold => (gold_texture.clone(), Vec2::new(64.0, 48.0)),
-                ResourceKind::Stone => (stone_texture.clone(), Vec2::new(64.0, 48.0)),
+                ResourceKind::Gold => (gold_texture.clone(), Vec2::new(80.0, 60.0)),
+                ResourceKind::Stone => (stone_texture.clone(), Vec2::new(80.0, 60.0)),
                 ResourceKind::Food => (berry_texture.clone(), Vec2::new(56.0, 42.0)),
+            };
+
+            let (ox, oy) = match cluster.kind {
+                ResourceKind::Gold | ResourceKind::Stone => (jx, jy),
+                _ => (0.0, 0.0),
             };
 
             commands.spawn((
@@ -225,7 +235,7 @@ fn spawn_resource_nodes(
                     custom_size: Some(size),
                     ..default()
                 },
-                Transform::from_xyz(world.x, world.y, 5.0),
+                Transform::from_xyz(world.x + ox, world.y + oy, 5.0),
             ));
         }
     }
@@ -284,6 +294,31 @@ fn update_population_system(
 
     pop.current = current;
     pop.cap = cap.min(Population::MAX_POP);
+}
+
+fn load_resource_sprite(images: &mut Assets<Image>, path: &str, fallback_color: [u8; 4]) -> Handle<Image> {
+    if let Ok(src) = image::open(path) {
+        let rgba = src.to_rgba8();
+        let (sw, sh) = rgba.dimensions();
+        let mut img = Image::new(
+            bevy::render::render_resource::Extent3d {
+                width: sw,
+                height: sh,
+                depth_or_array_layers: 1,
+            },
+            bevy::render::render_resource::TextureDimension::D2,
+            rgba.into_raw(),
+            bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+            bevy::asset::RenderAssetUsages::RENDER_WORLD,
+        );
+        img.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
+            mag_filter: bevy::image::ImageFilterMode::Linear,
+            min_filter: bevy::image::ImageFilterMode::Linear,
+            ..default()
+        });
+        return images.add(img);
+    }
+    create_resource_texture(images, fallback_color)
 }
 
 fn create_resource_texture(images: &mut Assets<Image>, color: [u8; 4]) -> Handle<Image> {

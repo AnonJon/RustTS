@@ -5,7 +5,7 @@ use crate::map::{GridPosition, TILE_SIZE, MAP_WIDTH, MAP_HEIGHT};
 use crate::units::components::*;
 use crate::resources::components::{PlayerResources, Carrying};
 use super::components::*;
-use super::{spawn_building, load_building_texture, sprite_path};
+use super::{spawn_building, load_building_texture};
 
 #[derive(Resource, Default)]
 pub struct PlacementMode {
@@ -85,9 +85,10 @@ pub fn enter_placement_mode(
             let pixel_w = (tw as f32 * TILE_SIZE) as u32;
             let pixel_h = (th as f32 * iso_tile_h) as u32;
 
-            let texture = load_building_texture(&mut images, kind, pixel_w, pixel_h);
-            let display_size = if sprite_path(kind).is_some() {
-                kind.sprite_display_size(pixel_w as f32, pixel_h as f32)
+            let (texture, actual_dims) = load_building_texture(&mut images, kind, pixel_w, pixel_h);
+            let display_size = if let Some((sw, sh)) = actual_dims {
+                let aspect = sh as f32 / sw as f32;
+                Vec2::new(pixel_w as f32, pixel_w as f32 * aspect)
             } else {
                 Vec2::new(pixel_w as f32, pixel_h as f32)
             };

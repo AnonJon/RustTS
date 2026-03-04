@@ -71,9 +71,36 @@ fn load_unit_sprites(
     asset_server: Res<AssetServer>,
     mut atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    let villager = make_unit_sprite_sheet(&asset_server, &mut atlas_layouts, types::UnitKind::Villager);
-    let militia = make_unit_sprite_sheet(&asset_server, &mut atlas_layouts, types::UnitKind::Militia);
-    commands.insert_resource(types::UnitSprites { villager, militia });
+    let mut sprites = types::UnitSprites::new();
+
+    let sprite_paths: &[&str] = &[
+        "sprites/units/villager.png",
+        "sprites/units/militia.png",
+        "sprites/units/archer.png",
+        "sprites/units/knight.png",
+        "sprites/units/spearman.png",
+        "sprites/units/monk.png",
+        "sprites/units/king.png",
+        "sprites/units/scout.png",
+        "sprites/units/siege_ram.png",
+        "sprites/units/trade_cart.png",
+    ];
+
+    for &path in sprite_paths {
+        let texture: Handle<Image> = asset_server.load(path);
+        let frame_count = 9u32;
+        let layout = TextureAtlasLayout::from_grid(
+            UVec2::new(48, 48),
+            frame_count,
+            1,
+            None,
+            None,
+        );
+        let atlas_layout = atlas_layouts.add(layout);
+        sprites.insert(path, types::UnitSpriteSheet { texture, atlas_layout });
+    }
+
+    commands.insert_resource(sprites);
 }
 
 fn spawn_initial_units(
@@ -130,26 +157,3 @@ fn spawn_initial_units(
     }
 }
 
-fn make_unit_sprite_sheet(
-    asset_server: &Res<AssetServer>,
-    atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>,
-    kind: types::UnitKind,
-) -> types::UnitSpriteSheet {
-    let path = kind.sprite_path().expect("unit kind must have a sprite path");
-    let texture: Handle<Image> = asset_server.load(path);
-
-    let frame_count = kind.frame_count();
-    let layout = TextureAtlasLayout::from_grid(
-        UVec2::new(48, 48),
-        frame_count as u32,
-        1,
-        None,
-        None,
-    );
-    let atlas_layout = atlas_layouts.add(layout);
-
-    types::UnitSpriteSheet {
-        texture,
-        atlas_layout,
-    }
-}

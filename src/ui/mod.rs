@@ -3,6 +3,7 @@ pub mod minimap;
 pub mod game_over;
 pub mod lobby;
 pub mod stats;
+pub mod tech_tree;
 
 use bevy::prelude::*;
 use hud::*;
@@ -17,6 +18,8 @@ impl Plugin for GameUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameResult>()
             .init_resource::<stats::GameStats>()
+            .init_resource::<tech_tree::TechTreeOpen>()
+            .init_resource::<IdleVillagerCycle>()
             // Lobby (Menu state)
             .add_systems(OnEnter(GameState::Menu), setup_lobby)
             .add_systems(OnExit(GameState::Menu), teardown_lobby)
@@ -46,6 +49,14 @@ impl Plugin for GameUiPlugin {
                 show_game_over,
                 update_countdown_display,
                 stats::track_game_time,
+            ).run_if(in_state(GameState::InGame)))
+            .add_systems(Update, (
+                game_speed_system,
+                update_game_speed_display,
+                idle_villager_system,
+                update_idle_villager_count,
+                tech_tree::toggle_tech_tree,
+                tech_tree::refresh_tech_tree,
             ).run_if(in_state(GameState::InGame)));
     }
 }

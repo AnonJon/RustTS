@@ -291,6 +291,10 @@ pub struct ResearchedTechnologies {
 }
 
 impl ResearchedTechnologies {
+    pub fn has(&self, tech: Technology) -> bool {
+        self.techs.contains(&tech)
+    }
+
     pub fn melee_attack_bonus(&self) -> f32 {
         let mut bonus = 0.0;
         if self.techs.contains(&Technology::Forging) { bonus += 1.0; }

@@ -42,7 +42,7 @@ const KEYBOARD_PAN_SPEED: f32 = 600.0;
 const ZOOM_SPEED: f32 = 0.08;
 const MIN_ZOOM: f32 = 0.35;
 const MAX_ZOOM: f32 = 1.2;
-const DEFAULT_ZOOM: f32 = 0.55;
+const DEFAULT_ZOOM: f32 = 1.2;
 const ZOOM_LERP_SPEED: f32 = 8.0;
 
 fn spawn_menu_camera(mut commands: Commands) {

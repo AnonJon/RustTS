@@ -523,10 +523,21 @@ impl UnitKind {
     }
 
     pub fn sprite_path(self) -> Option<&'static str> {
-        match self {
-            UnitKind::Villager => Some("sprites/units/villager.png"),
-            _ => Some("sprites/units/militia.png"),
-        }
+        Some(match self {
+            UnitKind::Villager => "sprites/units/villager.png",
+            UnitKind::Archer | UnitKind::Crossbowman | UnitKind::Arbalester
+            | UnitKind::Skirmisher | UnitKind::EliteSkirmisher
+            | UnitKind::Longbowman | UnitKind::EliteLongbowman => "sprites/units/archer.png",
+            UnitKind::Knight | UnitKind::Cavalier | UnitKind::Paladin => "sprites/units/knight.png",
+            UnitKind::Spearman | UnitKind::Pikeman | UnitKind::Halberdier => "sprites/units/spearman.png",
+            UnitKind::Monk => "sprites/units/monk.png",
+            UnitKind::King => "sprites/units/king.png",
+            UnitKind::ScoutCavalry | UnitKind::LightCavalry | UnitKind::Hussar => "sprites/units/scout.png",
+            UnitKind::BatteringRam | UnitKind::Mangonel | UnitKind::Scorpion => "sprites/units/siege_ram.png",
+            UnitKind::TradeCart => "sprites/units/trade_cart.png",
+            UnitKind::Mangudai | UnitKind::EliteMangudai => "sprites/units/scout.png",
+            _ => "sprites/units/militia.png",
+        })
     }
 
     pub fn line_of_sight(self) -> u32 {
@@ -556,16 +567,23 @@ pub struct UnitSpriteSheet {
 
 #[derive(Resource)]
 pub struct UnitSprites {
-    pub villager: UnitSpriteSheet,
-    pub militia: UnitSpriteSheet,
+    sheets: std::collections::HashMap<&'static str, UnitSpriteSheet>,
 }
 
 impl UnitSprites {
+    pub fn new() -> Self {
+        Self { sheets: std::collections::HashMap::new() }
+    }
+
+    pub fn insert(&mut self, path: &'static str, sheet: UnitSpriteSheet) {
+        self.sheets.insert(path, sheet);
+    }
+
     pub fn get(&self, kind: UnitKind) -> &UnitSpriteSheet {
-        match kind {
-            UnitKind::Villager => &self.villager,
-            _ => &self.militia,
-        }
+        let path = kind.sprite_path().unwrap_or("sprites/units/militia.png");
+        self.sheets.get(path).unwrap_or_else(|| {
+            self.sheets.get("sprites/units/militia.png").expect("militia sprite must be loaded")
+        })
     }
 }
 

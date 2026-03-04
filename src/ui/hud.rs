@@ -74,6 +74,32 @@ pub fn setup_hud(mut commands: Commands) {
         spawn_resource_label(parent, "Gold: 0", GoldText);
         spawn_resource_label(parent, "Stone: 0", StoneText);
         spawn_resource_label(parent, "Pop: 0/5", PopText);
+
+        // Idle villager button
+        parent.spawn((
+            IdleVillagerButton,
+            Button,
+            Node {
+                padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+                margin: UiRect::left(Val::Px(16.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.6, 0.5, 0.1, 0.9)),
+        )).with_child((
+            IdleVillagerText,
+            Text::new("Idle: 0"),
+            TextFont { font_size: 13.0, ..default() },
+            TextColor(Color::WHITE),
+        ));
+
+        // Game speed display
+        parent.spawn((
+            GameSpeedDisplay,
+            Text::new("Speed: 1.0x"),
+            TextFont { font_size: 13.0, ..default() },
+            TextColor(Color::srgb(0.7, 0.7, 0.7)),
+            Node { margin: UiRect::left(Val::Px(16.0)), ..default() },
+        ));
     });
 
     // Countdown display (Wonder/Relic victory timer)
@@ -731,7 +757,7 @@ pub fn handle_build_button_clicks(
     age: Res<CurrentAge>,
 ) {
     use crate::buildings::placement::GhostBuilding;
-    use crate::buildings::{load_building_texture, sprite_path};
+    use crate::buildings::load_building_texture;
     use crate::map::TILE_SIZE;
 
     for (interaction, btn) in &interactions {
@@ -756,9 +782,10 @@ pub fn handle_build_button_clicks(
         let pixel_w = (tw as f32 * TILE_SIZE) as u32;
         let pixel_h = (th as f32 * iso_tile_h) as u32;
 
-        let texture = load_building_texture(&mut images, kind, pixel_w, pixel_h);
-        let display_size = if sprite_path(kind).is_some() {
-            kind.sprite_display_size(pixel_w as f32, pixel_h as f32)
+        let (texture, actual_dims) = load_building_texture(&mut images, kind, pixel_w, pixel_h);
+        let display_size = if let Some((sw, sh)) = actual_dims {
+            let aspect = sh as f32 / sw as f32;
+            Vec2::new(pixel_w as f32, pixel_w as f32 * aspect)
         } else {
             Vec2::new(pixel_w as f32, pixel_h as f32)
         };
@@ -774,5 +801,125 @@ pub fn handle_build_button_clicks(
             Transform::from_xyz(0.0, 0.0, 15.0),
         )).id();
         placement.ghost = Some(ghost);
+    }
+}
+
+// --- Game Speed Controls ---
+
+#[derive(Component)]
+pub struct GameSpeedDisplay;
+
+pub fn game_speed_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut speed: ResMut<crate::GameSpeed>,
+    mut time_settings: ResMut<Time<Virtual>>,
+) {
+    let mut changed = false;
+    if keys.just_pressed(KeyCode::NumpadAdd) || keys.just_pressed(KeyCode::BracketRight) {
+        speed.0 = (speed.0 + crate::GameSpeed::STEP).min(crate::GameSpeed::MAX);
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::NumpadSubtract) || keys.just_pressed(KeyCode::BracketLeft) {
+        speed.0 = (speed.0 - crate::GameSpeed::STEP).max(crate::GameSpeed::MIN);
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::Pause) || keys.just_pressed(KeyCode::F3) {
+        if speed.0 > 0.0 {
+            speed.0 = 0.0;
+        } else {
+            speed.0 = 1.0;
+        }
+        changed = true;
+    }
+    if changed {
+        time_settings.set_relative_speed(speed.0);
+    }
+}
+
+pub fn update_game_speed_display(
+    speed: Res<crate::GameSpeed>,
+    mut text_q: Query<&mut Text, With<GameSpeedDisplay>>,
+) {
+    if !speed.is_changed() { return; }
+    for mut text in &mut text_q {
+        if speed.0 == 0.0 {
+            **text = "PAUSED".to_string();
+        } else {
+            **text = format!("Speed: {:.1}x", speed.0);
+        }
+    }
+}
+
+// --- Idle Villager Alert ---
+
+#[derive(Component)]
+pub struct IdleVillagerButton;
+
+#[derive(Component)]
+pub struct IdleVillagerText;
+
+#[derive(Resource, Default)]
+pub struct IdleVillagerCycle {
+    pub last_index: usize,
+}
+
+pub fn idle_villager_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    btn_q: Query<&Interaction, (With<IdleVillagerButton>, Changed<Interaction>)>,
+    mut commands: Commands,
+    mut cycle: ResMut<IdleVillagerCycle>,
+    idle_villagers: Query<(Entity, &Transform, &Team, &UnitState, &crate::units::types::UnitKind), With<Unit>>,
+    mut camera_q: Query<&mut Transform, (With<crate::camera::MainCamera>, Without<Unit>)>,
+) {
+    let mut clicked = false;
+    for interaction in &btn_q {
+        if *interaction == Interaction::Pressed {
+            clicked = true;
+        }
+    }
+    if keys.just_pressed(KeyCode::Period) {
+        clicked = true;
+    }
+    if !clicked { return; }
+
+    let mut idle: Vec<Entity> = idle_villagers.iter()
+        .filter(|(_, _, t, state, kind)| {
+            t.0 == 0
+            && **kind == crate::units::types::UnitKind::Villager
+            && matches!(state, UnitState::Idle)
+        })
+        .map(|(e, _, _, _, _)| e)
+        .collect();
+
+    if idle.is_empty() { return; }
+    idle.sort();
+
+    let idx = cycle.last_index % idle.len();
+    let target = idle[idx];
+    cycle.last_index = idx + 1;
+
+    if let Ok((_, tf, _, _, _)) = idle_villagers.get(target) {
+        commands.entity(target).insert(Selected);
+        if let Ok(mut cam_tf) = camera_q.single_mut() {
+            cam_tf.translation.x = tf.translation.x;
+            cam_tf.translation.y = tf.translation.y;
+        }
+    }
+}
+
+pub fn update_idle_villager_count(
+    mut text_q: Query<&mut Text, With<IdleVillagerText>>,
+    villagers: Query<(&Team, &UnitState, &crate::units::types::UnitKind), With<Unit>>,
+) {
+    let count = villagers.iter()
+        .filter(|(t, state, kind)| {
+            t.0 == 0
+            && **kind == crate::units::types::UnitKind::Villager
+            && matches!(state, UnitState::Idle)
+        })
+        .count();
+
+    for mut text in &mut text_q {
+        **text = format!("Idle: {count}");
     }
 }

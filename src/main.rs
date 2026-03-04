@@ -62,6 +62,19 @@ impl GameMode {
 }
 
 #[derive(Resource)]
+pub struct GameSpeed(pub f32);
+
+impl Default for GameSpeed {
+    fn default() -> Self { Self(1.0) }
+}
+
+impl GameSpeed {
+    pub const MIN: f32 = 0.5;
+    pub const MAX: f32 = 3.0;
+    pub const STEP: f32 = 0.25;
+}
+
+#[derive(Resource)]
 pub struct GameSettings {
     pub map_type: map::generation::MapType,
     pub num_players: usize,
@@ -90,6 +103,7 @@ fn main() {
         }))
         .init_state::<GameState>()
         .init_resource::<GameSettings>()
+        .init_resource::<GameSpeed>()
         .init_resource::<civilization::PlayerCivilization>()
         .add_plugins(CameraPlugin)
         .add_plugins(MapPlugin)

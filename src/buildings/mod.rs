@@ -107,11 +107,12 @@ pub fn spawn_building(
     let iso_tile_h = TILE_SIZE / 2.0;
     let pixel_w = (tw as f32 * TILE_SIZE) as u32;
     let pixel_h = (th as f32 * iso_tile_h) as u32;
-    let texture = load_building_texture(images, kind, pixel_w, pixel_h);
+    let (texture, actual_dims) = load_building_texture(images, kind, pixel_w, pixel_h);
     let world = grid.to_world();
 
-    let sprite_size = if sprite_path(kind).is_some() {
-        Some(kind.sprite_display_size(pixel_w as f32, pixel_h as f32))
+    let sprite_size = if let Some((sw, sh)) = actual_dims {
+        let aspect = sh as f32 / sw as f32;
+        Some(Vec2::new(pixel_w as f32, pixel_w as f32 * aspect))
     } else {
         None
     };
@@ -231,16 +232,27 @@ pub fn sprite_path(kind: BuildingKind) -> Option<&'static str> {
         BuildingKind::TownCenter => Some("assets/sprites/buildings/castlekeep_14.png"),
         BuildingKind::LumberCamp => Some("assets/textures/lumber_camp.png"),
         BuildingKind::MiningCamp => Some("assets/textures/mining_camp.png"),
+        BuildingKind::House => Some("assets/sprites/buildings/house.png"),
+        BuildingKind::Barracks => Some("assets/sprites/buildings/barracks.png"),
+        BuildingKind::ArcheryRange => Some("assets/sprites/buildings/archery_range.png"),
+        BuildingKind::Stable => Some("assets/sprites/buildings/stable.png"),
+        BuildingKind::Blacksmith => Some("assets/sprites/buildings/blacksmith.png"),
+        BuildingKind::Monastery => Some("assets/sprites/buildings/monastery.png"),
+        BuildingKind::Market => Some("assets/sprites/buildings/market.png"),
+        BuildingKind::Wonder => Some("assets/sprites/buildings/wonder.png"),
         _ => None,
     }
 }
 
+/// Returns (texture_handle, optional actual image dimensions).
+/// When a sprite file is loaded, returns `Some((w, h))` so callers can
+/// preserve aspect ratio.
 pub fn load_building_texture(
     images: &mut Assets<Image>,
     kind: BuildingKind,
     width: u32,
     height: u32,
-) -> Handle<Image> {
+) -> (Handle<Image>, Option<(u32, u32)>) {
     if let Some(path) = sprite_path(kind) {
         if let Ok(src) = image::open(path) {
             let rgba = src.to_rgba8();
@@ -263,10 +275,10 @@ pub fn load_building_texture(
                     ..default()
                 },
             );
-            return images.add(img);
+            return (images.add(img), Some((sw, sh)));
         }
     }
-    create_building_texture(images, kind.color(), width, height)
+    (create_building_texture(images, kind.color(), width, height), None)
 }
 
 fn create_building_texture(

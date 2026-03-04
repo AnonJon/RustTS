@@ -34,7 +34,10 @@ pub fn handle_selection_click(
     mut drag_state: Local<DragState>,
     keys: Res<ButtonInput<KeyCode>>,
     ui_interactions: Query<&Interaction, With<Node>>,
+    placement: Res<crate::buildings::placement::PlacementMode>,
 ) {
+    if placement.active { return; }
+
     let ui_busy = ui_interactions.iter().any(|i| *i != Interaction::None);
 
     let Ok(window) = windows.single() else { return };
@@ -117,7 +120,9 @@ pub fn handle_drag_selection(
     selected: Query<Entity, With<Selected>>,
     mut drag_state: Local<DragState>,
     keys: Res<ButtonInput<KeyCode>>,
+    placement: Res<crate::buildings::placement::PlacementMode>,
 ) {
+    if placement.active { return; }
     let Ok(window) = windows.single() else { return };
     let Ok((camera, cam_transform)) = camera_q.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
