@@ -141,6 +141,8 @@ pub fn construction_system(
         let is_research_bld = matches!(bld_kind,
             BuildingKind::TownCenter | BuildingKind::Blacksmith | BuildingKind::University
             | BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill
+            | BuildingKind::Barracks | BuildingKind::ArcheryRange | BuildingKind::Stable
+            | BuildingKind::Castle
         );
         if is_research_bld {
             commands.entity(building_e).insert(super::research::ResearchQueue { queue: Vec::new() });
@@ -194,6 +196,7 @@ pub fn training_system(
     time: Res<Time>,
     mut stats: ResMut<crate::ui::stats::GameStats>,
     player_civ: Res<crate::civilization::PlayerCivilization>,
+    line_upgrades: Res<crate::buildings::research::UnitLineUpgrades>,
 ) {
     for (_entity, building, mut queue, transform, team) in &mut buildings {
         if queue.queue.is_empty() {
@@ -204,7 +207,11 @@ pub fn training_system(
 
         if queue.queue[0].remaining.just_finished() {
             let slot = queue.queue.remove(0);
-            let kind = slot.kind;
+            let kind = if team.0 == 0 {
+                line_upgrades.current_version(slot.kind)
+            } else {
+                slot.kind
+            };
 
             let rally = building.rally_point.unwrap_or_else(|| {
                 transform.translation.truncate() + Vec2::new(0.0, -TILE_SIZE * 3.0)
@@ -464,20 +471,21 @@ pub fn keyboard_training_system(
         if team.0 != 0 { continue; }
 
         let all_trainable = building.kind.can_train();
-        let trainable: Vec<&crate::units::types::UnitKind> = if building.kind == BuildingKind::Castle {
+        let trainable: Vec<crate::units::types::UnitKind> = if building.kind == BuildingKind::Castle {
             let uu = player_civ.0.unique_unit();
-            all_trainable.iter().filter(|&&k| k == uu).collect()
+            all_trainable.iter().filter(|&&k| k == uu).map(|k| *k).collect()
         } else {
-            all_trainable.iter().collect()
+            all_trainable.iter().map(|k| *k).collect()
         };
+        let trainable: Vec<crate::units::types::UnitKind> = trainable.into_iter()
+            .filter(|kind| kind.required_age() <= age.0)
+            .collect();
 
-        if keys.just_pressed(KeyCode::KeyQ) {
-            if let Some(&&kind) = trainable.first() {
-                enqueue_unit(&mut commands, Entity::PLACEHOLDER, &mut queue, kind, &mut resources, &age, &population);
-            }
-        }
-        if keys.just_pressed(KeyCode::KeyW) {
-            if let Some(&&kind) = trainable.get(1) {
+        let train_keys = [KeyCode::KeyQ, KeyCode::KeyW, KeyCode::KeyE];
+        for (i, &key) in train_keys.iter().enumerate() {
+            if i >= trainable.len() { break; }
+            if keys.just_pressed(key) {
+                let kind = trainable[i];
                 enqueue_unit(&mut commands, Entity::PLACEHOLDER, &mut queue, kind, &mut resources, &age, &population);
             }
         }

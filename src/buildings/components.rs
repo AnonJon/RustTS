@@ -150,7 +150,7 @@ impl BuildingKind {
             BuildingKind::Barracks => &[UnitKind::Militia, UnitKind::ManAtArms, UnitKind::Spearman],
             BuildingKind::ArcheryRange => &[UnitKind::Archer, UnitKind::Skirmisher],
             BuildingKind::Stable => &[UnitKind::ScoutCavalry, UnitKind::Knight],
-            BuildingKind::SiegeWorkshop => &[UnitKind::BatteringRam, UnitKind::Mangonel],
+            BuildingKind::SiegeWorkshop => &[UnitKind::BatteringRam, UnitKind::Mangonel, UnitKind::Scorpion],
             BuildingKind::Market => &[UnitKind::TradeCart],
             BuildingKind::Monastery => &[UnitKind::Monk],
             BuildingKind::Castle => &[UnitKind::Longbowman, UnitKind::ThrowingAxeman, UnitKind::TeutonicKnight, UnitKind::Mangudai],
@@ -360,7 +360,7 @@ impl RelicStorage {
 impl UnitKind {
     pub fn population_cost(self) -> u32 {
         match self {
-            UnitKind::BatteringRam | UnitKind::Mangonel => 3,
+            UnitKind::BatteringRam | UnitKind::Mangonel | UnitKind::Scorpion => 3,
             _ => 1,
         }
     }
@@ -368,21 +368,22 @@ impl UnitKind {
     pub fn train_time(self) -> f32 {
         match self {
             UnitKind::Villager => 25.0,
-            UnitKind::Militia => 21.0,
-            UnitKind::ManAtArms => 21.0,
-            UnitKind::Spearman => 22.0,
-            UnitKind::Archer => 27.0,
-            UnitKind::Skirmisher => 22.0,
-            UnitKind::ScoutCavalry => 30.0,
-            UnitKind::Knight => 30.0,
+            UnitKind::Militia | UnitKind::ManAtArms | UnitKind::LongSwordsman
+            | UnitKind::TwoHandedSwordsman | UnitKind::Champion => 21.0,
+            UnitKind::Spearman | UnitKind::Pikeman | UnitKind::Halberdier => 22.0,
+            UnitKind::Archer | UnitKind::Crossbowman | UnitKind::Arbalester => 27.0,
+            UnitKind::Skirmisher | UnitKind::EliteSkirmisher => 22.0,
+            UnitKind::ScoutCavalry | UnitKind::LightCavalry | UnitKind::Hussar => 30.0,
+            UnitKind::Knight | UnitKind::Cavalier | UnitKind::Paladin => 30.0,
             UnitKind::BatteringRam => 36.0,
             UnitKind::Mangonel => 46.0,
+            UnitKind::Scorpion => 30.0,
             UnitKind::TradeCart => 30.0,
             UnitKind::Monk => 51.0,
-            UnitKind::Longbowman => 19.0,
-            UnitKind::ThrowingAxeman => 17.0,
-            UnitKind::TeutonicKnight => 19.0,
-            UnitKind::Mangudai => 26.0,
+            UnitKind::Longbowman | UnitKind::EliteLongbowman => 19.0,
+            UnitKind::ThrowingAxeman | UnitKind::EliteThrowingAxeman => 17.0,
+            UnitKind::TeutonicKnight | UnitKind::EliteTeutonicKnight => 19.0,
+            UnitKind::Mangudai | UnitKind::EliteMangudai => 26.0,
             UnitKind::FishingShip => 40.0,
             UnitKind::Galley => 60.0,
         }
@@ -391,21 +392,22 @@ impl UnitKind {
     pub fn train_cost(self) -> (u32, u32, u32, u32) {
         match self {
             UnitKind::Villager => (50, 0, 0, 0),
-            UnitKind::Militia => (60, 0, 20, 0),
-            UnitKind::ManAtArms => (60, 0, 20, 0),
-            UnitKind::Spearman => (35, 0, 0, 0),
-            UnitKind::Archer => (0, 25, 45, 0),
-            UnitKind::Skirmisher => (25, 0, 0, 0),
-            UnitKind::ScoutCavalry => (80, 0, 0, 0),
-            UnitKind::Knight => (60, 0, 75, 0),
+            UnitKind::Militia | UnitKind::ManAtArms | UnitKind::LongSwordsman
+            | UnitKind::TwoHandedSwordsman | UnitKind::Champion => (60, 0, 20, 0),
+            UnitKind::Spearman | UnitKind::Pikeman | UnitKind::Halberdier => (35, 25, 0, 0),
+            UnitKind::Archer | UnitKind::Crossbowman | UnitKind::Arbalester => (0, 25, 45, 0),
+            UnitKind::Skirmisher | UnitKind::EliteSkirmisher => (25, 25, 0, 0),
+            UnitKind::ScoutCavalry | UnitKind::LightCavalry | UnitKind::Hussar => (80, 0, 0, 0),
+            UnitKind::Knight | UnitKind::Cavalier | UnitKind::Paladin => (60, 0, 75, 0),
             UnitKind::BatteringRam => (0, 160, 0, 0),
             UnitKind::Mangonel => (0, 160, 0, 160),
+            UnitKind::Scorpion => (0, 75, 75, 0),
             UnitKind::TradeCart => (0, 0, 100, 0),
             UnitKind::Monk => (0, 0, 100, 0),
-            UnitKind::Longbowman => (0, 35, 40, 0),
-            UnitKind::ThrowingAxeman => (55, 0, 25, 0),
-            UnitKind::TeutonicKnight => (85, 0, 40, 0),
-            UnitKind::Mangudai => (0, 55, 65, 0),
+            UnitKind::Longbowman | UnitKind::EliteLongbowman => (0, 35, 40, 0),
+            UnitKind::ThrowingAxeman | UnitKind::EliteThrowingAxeman => (55, 0, 25, 0),
+            UnitKind::TeutonicKnight | UnitKind::EliteTeutonicKnight => (85, 0, 40, 0),
+            UnitKind::Mangudai | UnitKind::EliteMangudai => (0, 55, 65, 0),
             UnitKind::FishingShip => (0, 75, 0, 0),
             UnitKind::Galley => (0, 90, 30, 0),
         }
@@ -417,9 +419,37 @@ impl UnitKind {
             UnitKind::ManAtArms | UnitKind::Spearman | UnitKind::Archer
             | UnitKind::Skirmisher | UnitKind::TradeCart => Age::Feudal,
             UnitKind::Knight | UnitKind::BatteringRam | UnitKind::Mangonel
-            | UnitKind::Monk | UnitKind::Longbowman | UnitKind::ThrowingAxeman
-            | UnitKind::TeutonicKnight | UnitKind::Mangudai => Age::Castle,
+            | UnitKind::Scorpion | UnitKind::Monk
+            | UnitKind::Longbowman | UnitKind::ThrowingAxeman
+            | UnitKind::TeutonicKnight | UnitKind::Mangudai
+            | UnitKind::LongSwordsman | UnitKind::Pikeman
+            | UnitKind::Crossbowman | UnitKind::EliteSkirmisher
+            | UnitKind::LightCavalry => Age::Castle,
+            UnitKind::TwoHandedSwordsman | UnitKind::Champion
+            | UnitKind::Halberdier | UnitKind::Arbalester
+            | UnitKind::Hussar | UnitKind::Cavalier | UnitKind::Paladin
+            | UnitKind::EliteLongbowman | UnitKind::EliteThrowingAxeman
+            | UnitKind::EliteTeutonicKnight | UnitKind::EliteMangudai => Age::Imperial,
             UnitKind::FishingShip | UnitKind::Galley => Age::Feudal,
+        }
+    }
+
+    /// Returns the base unit of this unit's upgrade line.
+    /// Used by the training system to look up the current upgraded version.
+    pub fn base_unit(self) -> UnitKind {
+        match self {
+            UnitKind::Militia | UnitKind::ManAtArms | UnitKind::LongSwordsman
+            | UnitKind::TwoHandedSwordsman | UnitKind::Champion => UnitKind::Militia,
+            UnitKind::Spearman | UnitKind::Pikeman | UnitKind::Halberdier => UnitKind::Spearman,
+            UnitKind::Archer | UnitKind::Crossbowman | UnitKind::Arbalester => UnitKind::Archer,
+            UnitKind::Skirmisher | UnitKind::EliteSkirmisher => UnitKind::Skirmisher,
+            UnitKind::ScoutCavalry | UnitKind::LightCavalry | UnitKind::Hussar => UnitKind::ScoutCavalry,
+            UnitKind::Knight | UnitKind::Cavalier | UnitKind::Paladin => UnitKind::Knight,
+            UnitKind::Longbowman | UnitKind::EliteLongbowman => UnitKind::Longbowman,
+            UnitKind::ThrowingAxeman | UnitKind::EliteThrowingAxeman => UnitKind::ThrowingAxeman,
+            UnitKind::TeutonicKnight | UnitKind::EliteTeutonicKnight => UnitKind::TeutonicKnight,
+            UnitKind::Mangudai | UnitKind::EliteMangudai => UnitKind::Mangudai,
+            other => other,
         }
     }
 }

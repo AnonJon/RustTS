@@ -33,10 +33,15 @@ pub fn handle_selection_click(
     selected: Query<Entity, With<Selected>>,
     mut drag_state: Local<DragState>,
     keys: Res<ButtonInput<KeyCode>>,
+    ui_interactions: Query<&Interaction, With<Node>>,
 ) {
+    let ui_busy = ui_interactions.iter().any(|i| *i != Interaction::None);
+
     let Ok(window) = windows.single() else { return };
     let Ok((camera, cam_transform)) = camera_q.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
+
+    if ui_busy { return; }
 
     if mouse.just_pressed(MouseButton::Left) {
         if let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) {

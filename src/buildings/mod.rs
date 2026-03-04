@@ -46,6 +46,7 @@ impl Plugin for BuildingPlugin {
             .init_resource::<PlacementMode>()
             .init_resource::<BuildingOccupancy>()
             .init_resource::<research::ResearchedTechnologies>()
+            .init_resource::<research::UnitLineUpgrades>()
             .add_systems(OnEnter(GameState::InGame), spawn_starting_buildings.after(generate_map_config))
             .add_systems(Update, (
                 update_building_occupancy,
@@ -198,6 +199,8 @@ pub fn spawn_building(
     let is_research_bld = matches!(kind,
         BuildingKind::TownCenter | BuildingKind::Blacksmith | BuildingKind::University
         | BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill
+        | BuildingKind::Barracks | BuildingKind::ArcheryRange | BuildingKind::Stable
+        | BuildingKind::Castle
     );
     if is_research_bld && !under_construction {
         entity_cmds.insert(research::ResearchQueue { queue: Vec::new() });
