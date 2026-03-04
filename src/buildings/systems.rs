@@ -15,10 +15,11 @@ pub fn construction_system(
         With<Unit>,
     >,
     mut buildings: Query<
-        (Entity, &Transform, &mut UnderConstruction, &mut Health, &mut Sprite, &Building),
+        (Entity, &Transform, &mut UnderConstruction, &mut Health, &mut Sprite, &Building, &Team),
         Without<Unit>,
     >,
     resource_nodes: Query<(Entity, &Transform, &ResourceNode), (Without<Unit>, Without<Building>)>,
+    mut stats: ResMut<crate::ui::stats::GameStats>,
 ) {
     let dt = time.delta_secs();
     if dt == 0.0 {
@@ -36,7 +37,7 @@ pub fn construction_system(
             continue;
         }
 
-        let Ok((_, bld_tf, ref uc, _, _, _)) = buildings.get(construct_target.0) else {
+        let Ok((_, bld_tf, ref uc, _, _, _, _)) = buildings.get(construct_target.0) else {
             commands.entity(villager_e)
                 .remove::<ConstructTarget>()
                 .insert(UnitState::Idle);
@@ -62,7 +63,7 @@ pub fn construction_system(
         .into_iter()
         .map(|(e, (t, b))| (e, t, b))
     {
-        let Ok((_, bld_tf, mut uc, mut health, mut sprite, building)) =
+        let Ok((_, bld_tf, mut uc, mut health, mut sprite, building, bld_team)) =
             buildings.get_mut(building_e) else { continue };
 
         uc.progress = (uc.progress + total_tick).min(1.0);
@@ -72,6 +73,10 @@ pub fn construction_system(
 
         if uc.progress < 1.0 {
             continue;
+        }
+
+        if bld_team.0 == 0 {
+            stats.buildings_built += 1;
         }
 
         let bld_pos = bld_tf.translation.truncate();
@@ -87,6 +92,28 @@ pub fn construction_system(
             });
         }
 
+        if bld_kind == BuildingKind::WatchTower {
+            commands.entity(building_e).insert(TowerAttack::watch_tower());
+        }
+
+        if bld_kind == BuildingKind::Castle {
+            commands.entity(building_e).insert(TowerAttack {
+                range: 10.0,
+                pierce_damage: 11.0,
+                cooldown: Timer::from_seconds(1.5, TimerMode::Repeating),
+            });
+        }
+
+        let garrison_cap = match bld_kind {
+            BuildingKind::TownCenter => Some(15),
+            BuildingKind::WatchTower => Some(5),
+            BuildingKind::Castle => Some(20),
+            _ => None,
+        };
+        if let Some(cap) = garrison_cap {
+            commands.entity(building_e).insert(GarrisonSlots::new(cap));
+        }
+
         let drop_off = match bld_kind {
             BuildingKind::TownCenter => Some(DropOff::all()),
             BuildingKind::LumberCamp => Some(DropOff::wood()),
@@ -96,6 +123,26 @@ pub fn construction_system(
         };
         if let Some(d) = drop_off {
             commands.entity(building_e).insert(d);
+        }
+
+        if bld_kind == BuildingKind::Farm {
+            commands.entity(building_e).insert(crate::resources::components::FarmFood::new());
+        }
+
+        if matches!(bld_kind, BuildingKind::Mill | BuildingKind::TownCenter) {
+            commands.entity(building_e).insert(crate::resources::components::AutoReseed(true));
+        }
+
+        let is_research_bld = matches!(bld_kind,
+            BuildingKind::Blacksmith | BuildingKind::University
+            | BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill
+        );
+        if is_research_bld {
+            commands.entity(building_e).insert(super::research::ResearchQueue { queue: Vec::new() });
+        }
+
+        if bld_kind == BuildingKind::Monastery {
+            commands.entity(building_e).insert(super::components::RelicStorage::new());
         }
 
         let resource_kind = match bld_kind {
@@ -140,6 +187,8 @@ pub fn training_system(
     _player_resources: ResMut<PlayerResources>,
     sprites: Res<UnitSprites>,
     time: Res<Time>,
+    mut stats: ResMut<crate::ui::stats::GameStats>,
+    player_civ: Res<crate::civilization::PlayerCivilization>,
 ) {
     for (_entity, building, mut queue, transform, team) in &mut buildings {
         if queue.queue.is_empty() {
@@ -159,10 +208,23 @@ pub fn training_system(
             let spawn_pos = transform.translation.truncate() + Vec2::new(0.0, -TILE_SIZE * 2.0);
             let grid = GridPosition::from_world(spawn_pos);
 
-            let entity = spawn_unit(&mut commands, sprites.get(kind), kind, *team, grid, spawn_pos);
-            commands.entity(entity)
+            let unit_e = spawn_unit(&mut commands, sprites.get(kind), kind, *team, grid, spawn_pos);
+            if team.0 == 0 {
+                stats.units_created += 1;
+                commands.entity(unit_e).insert(NeedsCivBonus);
+            }
+            commands.entity(unit_e)
                 .insert(MoveTarget(rally))
                 .insert(UnitState::Moving);
+
+            if kind == UnitKind::TradeCart {
+                commands.entity(unit_e).insert(crate::resources::market::TradeRoute {
+                    home_market: _entity,
+                    target_market: None,
+                    going_to_target: false,
+                    gold_earned: 0,
+                });
+            }
         }
     }
 }
@@ -265,11 +327,62 @@ pub fn start_age_up(
 
 pub fn building_death_system(
     mut commands: Commands,
-    query: Query<(Entity, &Health), With<Building>>,
+    query: Query<(Entity, &Health, &Team), With<Building>>,
+    mut stats: ResMut<crate::ui::stats::GameStats>,
 ) {
-    for (entity, health) in &query {
+    for (entity, health, team) in &query {
         if health.current <= 0.0 {
+            if team.0 == 0 {
+                stats.buildings_lost += 1;
+            } else {
+                stats.enemy_buildings_destroyed += 1;
+            }
             commands.entity(entity).despawn();
+        }
+    }
+}
+
+pub fn tower_attack_system(
+    mut towers: Query<(&Transform, &Team, &mut TowerAttack), (With<Building>, Without<UnderConstruction>)>,
+    mut targets: Query<(Entity, &Transform, &Team, &mut Health, &Armor), With<Unit>>,
+    time: Res<Time>,
+) {
+    let mut damage_events: Vec<(Entity, f32)> = Vec::new();
+
+    for (tower_tf, tower_team, mut attack) in &mut towers {
+        attack.cooldown.tick(time.delta());
+        if !attack.cooldown.just_finished() {
+            continue;
+        }
+
+        let tower_pos = tower_tf.translation.truncate();
+        let range_px = attack.range * TILE_SIZE;
+        let mut best_target: Option<(Entity, f32)> = None;
+
+        for (entity, target_tf, target_team, health, _) in &targets {
+            if target_team.0 == tower_team.0 || health.current <= 0.0 {
+                continue;
+            }
+            let dist = tower_pos.distance(target_tf.translation.truncate());
+            if dist < range_px {
+                if best_target.is_none() || dist < best_target.unwrap().1 {
+                    best_target = Some((entity, dist));
+                }
+            }
+        }
+
+        if let Some((target_entity, _)) = best_target {
+            if let Ok((_, _, _, _, armor)) = targets.get(target_entity) {
+                let pierce = (attack.pierce_damage - armor.pierce).max(0.0);
+                let dmg = pierce.max(1.0);
+                damage_events.push((target_entity, dmg));
+            }
+        }
+    }
+
+    for (entity, dmg) in damage_events {
+        if let Ok((_, _, _, mut health, _)) = targets.get_mut(entity) {
+            health.current -= dmg;
         }
     }
 }
@@ -333,19 +446,26 @@ pub fn keyboard_training_system(
     age: Res<CurrentAge>,
     mut age_progress: ResMut<AgeUpProgress>,
     mut commands: Commands,
+    player_civ: Res<crate::civilization::PlayerCivilization>,
 ) {
     for (building, mut queue, team) in &mut buildings_selected {
         if team.0 != 0 { continue; }
 
-        let trainable = building.kind.can_train();
+        let all_trainable = building.kind.can_train();
+        let trainable: Vec<&crate::units::types::UnitKind> = if building.kind == BuildingKind::Castle {
+            let uu = player_civ.0.unique_unit();
+            all_trainable.iter().filter(|&&k| k == uu).collect()
+        } else {
+            all_trainable.iter().collect()
+        };
 
         if keys.just_pressed(KeyCode::KeyQ) {
-            if let Some(&kind) = trainable.first() {
+            if let Some(&&kind) = trainable.first() {
                 enqueue_unit(&mut commands, Entity::PLACEHOLDER, &mut queue, kind, &mut resources, &age);
             }
         }
         if keys.just_pressed(KeyCode::KeyW) {
-            if let Some(&kind) = trainable.get(1) {
+            if let Some(&&kind) = trainable.get(1) {
                 enqueue_unit(&mut commands, Entity::PLACEHOLDER, &mut queue, kind, &mut resources, &age);
             }
         }
@@ -392,5 +512,121 @@ pub fn rally_point_system(
     for (mut building, team) in &mut buildings {
         if team.0 != 0 { continue; }
         building.rally_point = Some(world_pos);
+    }
+}
+
+pub fn garrison_command_system(
+    mut commands: Commands,
+    mouse: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    camera_q: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
+    selected_units: Query<(Entity, &Team), (With<Unit>, With<Selected>)>,
+    mut garrison_buildings: Query<(Entity, &Transform, &Team, &mut GarrisonSlots), With<Building>>,
+) {
+    if !mouse.just_pressed(MouseButton::Right) {
+        return;
+    }
+
+    let Ok(window) = windows.single() else { return };
+    let Ok((camera, cam_transform)) = camera_q.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else { return };
+    let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
+
+    for (bld_entity, bld_tf, bld_team, mut slots) in &mut garrison_buildings {
+        let dist = bld_tf.translation.truncate().distance(world_pos);
+        if dist > 80.0 {
+            continue;
+        }
+
+        for (unit_entity, unit_team) in &selected_units {
+            if unit_team.0 != bld_team.0 {
+                continue;
+            }
+            if !slots.has_space() {
+                break;
+            }
+            slots.units.push(unit_entity);
+            commands.entity(unit_entity)
+                .remove::<Selected>()
+                .insert(Visibility::Hidden)
+                .insert(UnitState::Idle);
+            commands.entity(unit_entity).remove::<MoveTarget>();
+            commands.entity(unit_entity).remove::<AttackTarget>();
+        }
+        return;
+    }
+}
+
+pub fn ungarrison_system(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut buildings: Query<(&Transform, &Team, &mut GarrisonSlots), (With<Building>, With<Selected>)>,
+) {
+    if !keys.just_pressed(KeyCode::KeyG) {
+        return;
+    }
+
+    for (bld_tf, team, mut slots) in &mut buildings {
+        if team.0 != 0 {
+            continue;
+        }
+        let bld_pos = bld_tf.translation.truncate();
+        for (i, unit_entity) in slots.units.drain(..).enumerate() {
+            let offset = Vec2::new(
+                ((i % 4) as f32 - 1.5) * 30.0,
+                -((i / 4) as f32 + 1.0) * 30.0,
+            );
+            commands.entity(unit_entity)
+                .insert(Visibility::Visible)
+                .insert(Transform::from_xyz(
+                    bld_pos.x + offset.x,
+                    bld_pos.y + offset.y,
+                    10.0,
+                ))
+                .insert(UnitState::Idle);
+        }
+    }
+}
+
+pub fn garrison_eject_on_death_system(
+    mut commands: Commands,
+    query: Query<(&Transform, &Health, &GarrisonSlots), With<Building>>,
+) {
+    for (bld_tf, health, slots) in &query {
+        if health.current > 0.0 || slots.units.is_empty() {
+            continue;
+        }
+        let bld_pos = bld_tf.translation.truncate();
+        for (i, &unit_entity) in slots.units.iter().enumerate() {
+            let offset = Vec2::new(
+                ((i % 4) as f32 - 1.5) * 30.0,
+                -((i / 4) as f32 + 1.0) * 30.0,
+            );
+            commands.entity(unit_entity)
+                .insert(Visibility::Visible)
+                .insert(Transform::from_xyz(
+                    bld_pos.x + offset.x,
+                    bld_pos.y + offset.y,
+                    10.0,
+                ))
+                .insert(UnitState::Idle);
+        }
+    }
+}
+
+pub fn garrison_arrow_bonus_system(
+    mut garrison_buildings: Query<(&GarrisonSlots, &mut TowerAttack), With<Building>>,
+    archers: Query<(&AttackStats, &UnitClass), With<Unit>>,
+) {
+    for (slots, mut tower_attack) in &mut garrison_buildings {
+        let mut bonus_arrows = 0.0f32;
+        for &unit_e in &slots.units {
+            if let Ok((stats, &class)) = archers.get(unit_e) {
+                if class == UnitClass::Archer {
+                    bonus_arrows += stats.pierce_damage * 0.5;
+                }
+            }
+        }
+        tower_attack.pierce_damage = 5.0 + bonus_arrows;
     }
 }

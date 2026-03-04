@@ -117,6 +117,85 @@ pub fn find_path(
     None
 }
 
+pub fn find_water_path(
+    start: GridPosition,
+    goal: GridPosition,
+    terrain_grid: &[Vec<Tile>],
+) -> Option<Vec<Vec2>> {
+    use crate::map::terrain::TerrainType;
+
+    let start_pos = (start.x, start.y);
+    let goal_pos = (goal.x, goal.y);
+
+    if start_pos == goal_pos {
+        return Some(vec![goal.to_world()]);
+    }
+
+    let mut open = BinaryHeap::new();
+    let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+    let mut g_score: HashMap<(i32, i32), u32> = HashMap::new();
+
+    g_score.insert(start_pos, 0);
+    open.push(Node {
+        pos: start_pos,
+        cost: 0,
+        heuristic: heuristic(start_pos, goal_pos),
+    });
+
+    let max_iterations = 1000;
+    let mut iterations = 0;
+
+    while let Some(current) = open.pop() {
+        iterations += 1;
+        if iterations > max_iterations {
+            break;
+        }
+
+        if current.pos == goal_pos {
+            let mut path = Vec::new();
+            let mut cur = goal_pos;
+            while let Some(&prev) = came_from.get(&cur) {
+                path.push(GridPosition::new(cur.0, cur.1).to_world());
+                cur = prev;
+            }
+            path.reverse();
+            return Some(path);
+        }
+
+        let current_g = g_score[&current.pos];
+
+        for &(dx, dy) in &NEIGHBORS {
+            let next = (current.pos.0 + dx, current.pos.1 + dy);
+
+            if next.0 < 0 || next.0 >= MAP_WIDTH as i32
+                || next.1 < 0 || next.1 >= MAP_HEIGHT as i32
+            {
+                continue;
+            }
+
+            let tile = &terrain_grid[next.0 as usize][next.1 as usize];
+            if tile.terrain != TerrainType::Water && next != goal_pos {
+                continue;
+            }
+
+            let move_cost = if dx != 0 && dy != 0 { 14 } else { 10 };
+            let tentative_g = current_g + move_cost;
+
+            if tentative_g < *g_score.get(&next).unwrap_or(&u32::MAX) {
+                g_score.insert(next, tentative_g);
+                came_from.insert(next, current.pos);
+                open.push(Node {
+                    pos: next,
+                    cost: tentative_g,
+                    heuristic: heuristic(next, goal_pos),
+                });
+            }
+        }
+    }
+
+    None
+}
+
 fn heuristic(a: (i32, i32), b: (i32, i32)) -> u32 {
     let dx = (a.0 - b.0).unsigned_abs();
     let dy = (a.1 - b.1).unsigned_abs();
@@ -190,6 +269,7 @@ pub fn pathfinding_system(
     resource_nodes: Query<(Entity, &GridPosition), With<crate::resources::components::ResourceNode>>,
     buildings: Query<(Entity, &GridPosition, &crate::buildings::components::Building)>,
     config: Res<MapConfig>,
+    naval_units: Query<Entity, With<super::components::NavalUnit>>,
 ) {
     let mut occupied: HashMap<(i32, i32), Entity> = HashMap::new();
     for (entity, transform) in &all_units {
@@ -232,7 +312,13 @@ pub fn pathfinding_system(
             }
         }
 
-        if let Some(waypoints) = find_path(start, goal, &occupied, entity, &config.terrain_grid) {
+        let waypoints = if naval_units.contains(entity) {
+            find_water_path(start, goal, &config.terrain_grid)
+        } else {
+            find_path(start, goal, &occupied, entity, &config.terrain_grid)
+        };
+
+        if let Some(waypoints) = waypoints {
             commands.entity(entity).insert(Path {
                 waypoints,
                 current_index: 0,
@@ -251,6 +337,7 @@ pub fn path_following_system(
     time: Res<Time>,
     config: Res<MapConfig>,
     building_occupancy: Res<crate::buildings::BuildingOccupancy>,
+    naval_units: Query<Entity, With<super::components::NavalUnit>>,
 ) {
     for (entity, mut transform, speed, mut path, mut state) in &mut query {
         if path.current_index >= path.waypoints.len() {
@@ -287,10 +374,16 @@ pub fn path_following_system(
             && new_grid.x < MAP_WIDTH as i32
             && new_grid.y >= 0
             && new_grid.y < MAP_HEIGHT as i32;
-        let walkable = in_bounds
-            && config.terrain_grid[new_grid.x as usize][new_grid.y as usize].is_walkable()
-            && !building_occupancy.0.contains(&(new_grid.x, new_grid.y));
-        if walkable {
+        let is_naval = naval_units.contains(entity);
+        let can_move = if is_naval {
+            use crate::map::terrain::TerrainType;
+            in_bounds && config.terrain_grid[new_grid.x as usize][new_grid.y as usize].terrain == TerrainType::Water
+        } else {
+            in_bounds
+                && config.terrain_grid[new_grid.x as usize][new_grid.y as usize].is_walkable()
+                && !building_occupancy.0.contains(&(new_grid.x, new_grid.y))
+        };
+        if can_move {
             transform.translation.x = new_pos.x;
             transform.translation.y = new_pos.y;
         } else {

@@ -1,6 +1,7 @@
 pub mod components;
 pub mod systems;
 pub mod placement;
+pub mod research;
 
 use bevy::prelude::*;
 use components::*;
@@ -24,6 +25,9 @@ fn update_building_occupancy(
 ) {
     occupancy.0.clear();
     for (grid, building) in &buildings {
+        if building.kind == BuildingKind::Gate {
+            continue;
+        }
         let (tw, th) = building.kind.tile_size();
         for dx in 0..tw as i32 {
             for dy in 0..th as i32 {
@@ -41,6 +45,7 @@ impl Plugin for BuildingPlugin {
             .init_resource::<AgeUpProgress>()
             .init_resource::<PlacementMode>()
             .init_resource::<BuildingOccupancy>()
+            .init_resource::<research::ResearchedTechnologies>()
             .add_systems(OnEnter(GameState::InGame), spawn_starting_buildings.after(generate_map_config))
             .add_systems(Update, (
                 update_building_occupancy,
@@ -48,9 +53,16 @@ impl Plugin for BuildingPlugin {
                 construction_system,
                 age_up_system,
                 building_death_system,
+                tower_attack_system,
+                garrison_command_system,
+                ungarrison_system,
+                garrison_eject_on_death_system,
+                garrison_arrow_bonus_system,
                 building_selection_system,
                 keyboard_training_system,
                 rally_point_system,
+                research::research_system,
+                research::keyboard_research_system,
                 enter_placement_mode,
                 update_ghost_position,
                 place_building_system,
@@ -105,6 +117,7 @@ pub fn spawn_building(
         kind.max_hp()
     };
 
+    let (m_arm, p_arm) = kind.armor();
     let mut entity_cmds = commands.spawn((
         Building {
             kind,
@@ -116,6 +129,7 @@ pub fn spawn_building(
             current: initial_hp,
             max: kind.max_hp(),
         },
+        Armor::new(m_arm, p_arm),
         Sprite {
             image: texture,
             custom_size: sprite_size,
@@ -129,10 +143,58 @@ pub fn spawn_building(
         entity_cmds.insert(UnderConstruction::new(kind));
     }
 
+    if kind == BuildingKind::WatchTower && !under_construction {
+        entity_cmds.insert(TowerAttack::watch_tower());
+    }
+
+    if kind == BuildingKind::Castle && !under_construction {
+        entity_cmds.insert(TowerAttack {
+            range: 10.0,
+            pierce_damage: 11.0,
+            cooldown: Timer::from_seconds(1.5, TimerMode::Repeating),
+        });
+    }
+
+    if kind == BuildingKind::Gate {
+        entity_cmds.insert(GatePassable { owner_team: team.0 });
+    }
+
+    if kind == BuildingKind::Farm && !under_construction {
+        entity_cmds.insert(crate::resources::components::FarmFood::new());
+    }
+
+    let garrison_capacity = match kind {
+        BuildingKind::TownCenter => Some(15),
+        BuildingKind::WatchTower => Some(5),
+        BuildingKind::Castle => Some(20),
+        _ => None,
+    };
+    if let Some(cap) = garrison_capacity {
+        if !under_construction {
+            entity_cmds.insert(GarrisonSlots::new(cap));
+        }
+    }
+
     if !under_construction && !kind.can_train().is_empty() {
         entity_cmds.insert(TrainingQueue {
             queue: Vec::new(),
         });
+    }
+
+    if matches!(kind, BuildingKind::Mill | BuildingKind::TownCenter) && !under_construction {
+        entity_cmds.insert(crate::resources::components::AutoReseed(true));
+    }
+
+    let is_research_bld = matches!(kind,
+        BuildingKind::Blacksmith | BuildingKind::University
+        | BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill
+    );
+    if is_research_bld && !under_construction {
+        entity_cmds.insert(research::ResearchQueue { queue: Vec::new() });
+    }
+
+    if kind == BuildingKind::Monastery && !under_construction {
+        entity_cmds.insert(components::RelicStorage::new());
     }
 
     if !under_construction {

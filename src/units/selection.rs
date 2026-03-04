@@ -262,12 +262,47 @@ pub fn handle_right_click_command(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    selected_units: Query<(Entity, Option<&crate::resources::components::Carrying>), (With<Unit>, With<Selected>)>,
+    selected_units: Query<(Entity, &Transform, Option<&crate::resources::components::Carrying>), (With<Unit>, With<Selected>)>,
     enemy_units: Query<(Entity, &Transform, &Team), With<Unit>>,
     resource_nodes: Query<(Entity, &Transform), With<crate::resources::components::ResourceNode>>,
     farm_buildings: Query<(Entity, &Transform, &crate::buildings::components::Building)>,
-    construction_buildings: Query<(Entity, &Transform, &crate::buildings::components::Building), With<crate::buildings::components::UnderConstruction>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut attack_move_pending: Local<bool>,
+    monk_units: Query<Entity, (With<Unit>, With<Selected>, With<MonkUnit>)>,
+    relic_carriers: Query<Entity, (With<Unit>, With<RelicCarrier>)>,
+    relics: Query<(Entity, &Transform), With<Relic>>,
+    monastery_buildings: Query<(Entity, &Transform, &Team, &crate::buildings::components::Building)>,
+    friendly_units: Query<(Entity, &Transform, &Team), With<Unit>>,
 ) {
+    // A key activates attack-move cursor; next left-click issues the attack-move command
+    if keys.just_pressed(KeyCode::KeyA) {
+        *attack_move_pending = true;
+    }
+
+    // Handle attack-move: A + left-click
+    if *attack_move_pending && mouse.just_pressed(MouseButton::Left) {
+        *attack_move_pending = false;
+        let Ok(window) = windows.single() else { return };
+        let Ok((camera, cam_transform)) = camera_q.single() else { return };
+        let Some(cursor_pos) = window.cursor_position() else { return };
+        let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
+
+        let selected: Vec<(Entity, Vec2)> = selected_units.iter()
+            .map(|(e, tf, _)| (e, tf.translation.truncate()))
+            .collect();
+        let count = selected.len();
+
+        for (i, (entity, _)) in selected.iter().enumerate() {
+            let offset = formation_offset(i, count);
+            commands.entity(*entity)
+                .remove::<AttackTarget>()
+                .insert(MoveTarget(world_pos + offset))
+                .insert(MovementIntent::AttackMove)
+                .insert(UnitState::Moving);
+        }
+        return;
+    }
+
     if !mouse.just_pressed(MouseButton::Right) {
         return;
     }
@@ -277,15 +312,120 @@ pub fn handle_right_click_command(
     let Some(cursor_pos) = window.cursor_position() else { return };
     let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
 
+    *attack_move_pending = false;
+
+    // Ctrl+Shift+right-click = patrol
+    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+
+    if ctrl && shift {
+        let selected: Vec<(Entity, Vec2)> = selected_units.iter()
+            .map(|(e, tf, _)| (e, tf.translation.truncate()))
+            .collect();
+        for (entity, current_pos) in &selected {
+            commands.entity(*entity)
+                .remove::<AttackTarget>()
+                .insert(MoveTarget(world_pos))
+                .insert(MovementIntent::Patrol {
+                    a: *current_pos,
+                    b: world_pos,
+                    going_to_b: true,
+                })
+                .insert(UnitState::Moving);
+        }
+        return;
+    }
+
+    // Priority 0a: monks with relics right-click on own monastery → deposit
+    {
+        let monk_carriers: Vec<Entity> = selected_units.iter()
+            .filter(|(e, _, _)| monk_units.contains(*e))
+            .filter(|(e, _, _)| relic_carriers.contains(*e))
+            .map(|(e, _, _)| e)
+            .collect();
+        if !monk_carriers.is_empty() {
+            for (mon_e, mon_tf, mon_team, building) in &monastery_buildings {
+                if building.kind != crate::buildings::components::BuildingKind::Monastery {
+                    continue;
+                }
+                if mon_team.0 != 0 { continue; }
+                let dist = mon_tf.translation.truncate().distance(world_pos);
+                if dist < 80.0 {
+                    for &monk_e in &monk_carriers {
+                        commands.entity(monk_e)
+                            .remove::<AttackTarget>()
+                            .remove::<HealTarget>()
+                            .remove::<ConvertTarget>()
+                            .insert(MoveTarget(mon_tf.translation.truncate()))
+                            .insert(UnitState::Moving);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    // Priority 0b: monks right-click on relic → pick up
+    {
+        let monks: Vec<Entity> = selected_units.iter()
+            .filter(|(e, _, _)| monk_units.contains(*e))
+            .filter(|(e, _, _)| !relic_carriers.contains(*e))
+            .map(|(e, _, _)| e)
+            .collect();
+        if !monks.is_empty() {
+            for (relic_e, relic_tf) in &relics {
+                let dist = relic_tf.translation.truncate().distance(world_pos);
+                if dist < 60.0 {
+                    for &monk_e in &monks {
+                        commands.entity(monk_e)
+                            .remove::<AttackTarget>()
+                            .remove::<HealTarget>()
+                            .remove::<ConvertTarget>()
+                            .insert(RelicCarrier(relic_e))
+                            .insert(MoveTarget(relic_tf.translation.truncate()))
+                            .insert(UnitState::Moving);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    // Priority 0c: monks right-click on friendly unit → heal
+    {
+        let monks: Vec<Entity> = selected_units.iter()
+            .filter(|(e, _, _)| monk_units.contains(*e))
+            .map(|(e, _, _)| e)
+            .collect();
+        if !monks.is_empty() {
+            for (ally_e, ally_tf, ally_team) in &friendly_units {
+                if ally_team.0 != 0 { continue; }
+                let dist = ally_tf.translation.truncate().distance(world_pos);
+                if dist < 50.0 && !monks.contains(&ally_e) {
+                    for &monk_e in &monks {
+                        commands.entity(monk_e)
+                            .remove::<AttackTarget>()
+                            .remove::<ConvertTarget>()
+                            .insert(HealTarget(ally_e))
+                            .insert(MoveTarget(ally_tf.translation.truncate()))
+                            .insert(UnitState::Moving);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
     // Priority 1: right-click on resource node → only villagers gather
     for (res_entity, res_transform) in &resource_nodes {
         let dist = res_transform.translation.truncate().distance(world_pos);
         if dist < 60.0 {
-            for (unit_entity, carrying) in &selected_units {
+            for (unit_entity, _, carrying) in &selected_units {
                 if carrying.is_some() {
                     commands.entity(unit_entity)
                         .remove::<AttackTarget>()
                         .insert(MoveTarget(res_transform.translation.truncate()))
+                        .insert(MovementIntent::Move)
                         .insert(UnitState::Gathering { resource: res_entity });
                 }
             }
@@ -300,11 +440,12 @@ pub fn handle_right_click_command(
         }
         let dist = farm_tf.translation.truncate().distance(world_pos);
         if dist < 60.0 {
-            for (unit_entity, carrying) in &selected_units {
+            for (unit_entity, _, carrying) in &selected_units {
                 if carrying.is_some() {
                     commands.entity(unit_entity)
                         .remove::<AttackTarget>()
                         .insert(MoveTarget(farm_tf.translation.truncate()))
+                        .insert(MovementIntent::Move)
                         .insert(UnitState::FarmingAt { farm: farm_entity });
                 }
             }
@@ -312,24 +453,7 @@ pub fn handle_right_click_command(
         }
     }
 
-    // Priority 3: right-click on building under construction → villagers help build
-    for (bld_entity, bld_tf, _building) in &construction_buildings {
-        let dist = bld_tf.translation.truncate().distance(world_pos);
-        if dist < 80.0 {
-            for (unit_entity, carrying) in &selected_units {
-                if carrying.is_some() {
-                    commands.entity(unit_entity)
-                        .remove::<AttackTarget>()
-                        .insert(ConstructTarget(bld_entity))
-                        .insert(MoveTarget(bld_tf.translation.truncate()))
-                        .insert(UnitState::Constructing { building: bld_entity });
-                }
-            }
-            return;
-        }
-    }
-
-    // Priority 4: right-click on enemy → attack
+    // Priority 3: right-click on enemy → attack
     let mut target_enemy: Option<Entity> = None;
     for (entity, transform, team) in &enemy_units {
         if team.0 == 0 { continue; }
@@ -340,21 +464,34 @@ pub fn handle_right_click_command(
         }
     }
 
-    // Priority 5: move to location
-    let selected: Vec<Entity> = selected_units.iter().map(|(e, _)| e).collect();
+    // Priority 4: move to location
+    let selected: Vec<Entity> = selected_units.iter().map(|(e, _, _)| e).collect();
     let count = selected.len().max(1) as f32;
 
     for (i, entity) in selected.iter().enumerate() {
         commands.entity(*entity).remove::<AttackTarget>();
 
         if let Some(enemy) = target_enemy {
-            commands.entity(*entity)
-                .insert(AttackTarget(enemy))
-                .insert(UnitState::Attacking);
+            if monk_units.contains(*entity) {
+                commands.entity(*entity)
+                    .remove::<HealTarget>()
+                    .insert(ConvertTarget {
+                        entity: enemy,
+                        progress: Timer::from_seconds(10.0, TimerMode::Once),
+                    })
+                    .insert(MoveTarget(world_pos))
+                    .insert(UnitState::Moving);
+            } else {
+                commands.entity(*entity)
+                    .insert(AttackTarget(enemy))
+                    .insert(MovementIntent::Move)
+                    .insert(UnitState::Attacking);
+            }
         } else {
             let offset = formation_offset(i, count as usize);
             commands.entity(*entity)
                 .insert(MoveTarget(world_pos + offset))
+                .insert(MovementIntent::Move)
                 .insert(UnitState::Moving);
         }
     }

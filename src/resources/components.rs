@@ -78,6 +78,33 @@ impl DropOff {
 #[derive(Component)]
 pub struct FarmWorker;
 
+#[derive(Component)]
+pub struct FarmFood {
+    pub remaining: u32,
+    pub max: u32,
+}
+
+impl FarmFood {
+    pub fn new() -> Self {
+        Self { remaining: 300, max: 300 }
+    }
+}
+
+#[derive(Component)]
+pub struct AutoReseed(pub bool);
+
+#[derive(Resource)]
+pub struct Population {
+    pub current: u32,
+    pub cap: u32,
+}
+
+impl Default for Population {
+    fn default() -> Self {
+        Self { current: 0, cap: 5 } // TC provides initial 5
+    }
+}
+
 #[derive(Resource, Default, Debug)]
 pub struct PlayerResources {
     pub food: u32,

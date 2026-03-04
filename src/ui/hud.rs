@@ -167,7 +167,7 @@ pub fn update_resource_display(
 }
 
 pub fn update_unit_info_panel(
-    selected_units: Query<(&Health, &Speed, &AttackStats, &UnitState, &Team, Option<&Carrying>), (With<Unit>, With<Selected>)>,
+    selected_units: Query<(&Health, &Speed, &AttackStats, &Armor, &UnitState, &Team, Option<&Carrying>), (With<Unit>, With<Selected>)>,
     selected_buildings: Query<(&Building, &Health, Option<&TrainingQueue>), (With<Selected>, Without<Unit>)>,
     selected_resources: Query<&ResourceNode, (With<Selected>, Without<Unit>, Without<Building>)>,
     mut info_text: Query<&mut Text, With<UnitInfoText>>,
@@ -256,15 +256,20 @@ pub fn update_unit_info_panel(
     }
 
     if units.len() == 1 {
-        let (health, _speed, _attack, state, _team, carrying) = units[0];
+        let (health, _speed, attack, armor, state, _team, carrying) = units[0];
         let state_str = format_unit_state(state, carrying);
+        let atk = if attack.pierce_damage > 0.0 {
+            format!("{:.0}P", attack.pierce_damage)
+        } else {
+            format!("{:.0}M", attack.melee_damage)
+        };
         **text = format!(
-            "HP: {:.0}/{:.0}\n{}  [B] Build",
-            health.current, health.max, state_str
+            "HP: {:.0}/{:.0}  Atk: {}  Arm: {:.0}/{:.0}\n{}  [B] Build",
+            health.current, health.max, atk, armor.melee, armor.pierce, state_str
         );
     } else {
-        let total_hp: f32 = units.iter().map(|(h, _, _, _, _, _)| h.current).sum();
-        let gathering: usize = units.iter().filter(|(_, _, _, s, _, _)| {
+        let total_hp: f32 = units.iter().map(|(h, _, _, _, _, _, _)| h.current).sum();
+        let gathering: usize = units.iter().filter(|(_, _, _, _, s, _, _)| {
             matches!(s, UnitState::Gathering { .. } | UnitState::Returning { .. } | UnitState::FarmingAt { .. })
         }).count();
         let mut info = format!("{} units selected  (Total HP: {:.0})", units.len(), total_hp);

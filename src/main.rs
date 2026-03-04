@@ -6,6 +6,7 @@ mod buildings;
 mod ai;
 mod ui;
 mod audio;
+pub mod civilization;
 
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
@@ -52,6 +53,7 @@ fn main() {
         }))
         .init_state::<GameState>()
         .init_resource::<GameSettings>()
+        .init_resource::<civilization::PlayerCivilization>()
         .add_plugins(CameraPlugin)
         .add_plugins(MapPlugin)
         .add_plugins(UnitPlugin)

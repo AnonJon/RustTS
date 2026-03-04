@@ -13,6 +13,7 @@ pub struct PlacementMode {
     pub kind: Option<BuildingKind>,
     pub ghost: Option<Entity>,
     pub menu_entity: Option<Entity>,
+    pub wall_start: Option<GridPosition>,
 }
 
 #[derive(Component)]
@@ -21,13 +22,24 @@ pub struct GhostBuilding;
 #[derive(Component)]
 pub struct BuildMenu;
 
-const BUILDABLE_KINDS: [(KeyCode, BuildingKind); 6] = [
+const BUILDABLE_KINDS: [(KeyCode, BuildingKind); 17] = [
     (KeyCode::Digit1, BuildingKind::Barracks),
     (KeyCode::Digit2, BuildingKind::ArcheryRange),
     (KeyCode::Digit3, BuildingKind::Stable),
     (KeyCode::Digit4, BuildingKind::LumberCamp),
     (KeyCode::Digit5, BuildingKind::MiningCamp),
     (KeyCode::Digit6, BuildingKind::Farm),
+    (KeyCode::Digit7, BuildingKind::WatchTower),
+    (KeyCode::Digit8, BuildingKind::PalisadeWall),
+    (KeyCode::Digit9, BuildingKind::StoneWall),
+    (KeyCode::Digit0, BuildingKind::Gate),
+    (KeyCode::Minus, BuildingKind::SiegeWorkshop),
+    (KeyCode::Equal, BuildingKind::Blacksmith),
+    (KeyCode::Backspace, BuildingKind::University),
+    (KeyCode::BracketLeft, BuildingKind::Market),
+    (KeyCode::BracketRight, BuildingKind::Monastery),
+    (KeyCode::Backslash, BuildingKind::Castle),
+    (KeyCode::Semicolon, BuildingKind::Dock),
 ];
 
 pub fn enter_placement_mode(
@@ -140,6 +152,17 @@ fn spawn_build_menu(
             ("4", "Lumber Camp"),
             ("5", "Mining Camp"),
             ("6", "Farm"),
+            ("7", "Watch Tower"),
+            ("8", "Palisade Wall"),
+            ("9", "Stone Wall"),
+            ("0", "Gate"),
+            ("-", "Siege Workshop"),
+            ("=", "Blacksmith"),
+            ("Bksp", "University"),
+            ("[", "Market"),
+            ("]", "Monastery"),
+            ("\\", "Castle"),
+            (";", "Dock"),
         ];
 
         for (i, &(key_label, name)) in labels.iter().enumerate() {
@@ -244,6 +267,52 @@ pub fn place_building_system(
         return;
     }
 
+    if kind.is_wall() {
+        if let Some(start) = placement.wall_start {
+            let tiles = line_between(start.x, start.y, grid.x, grid.y);
+            let cost_per = kind.build_cost();
+            let mut placed = Vec::new();
+
+            for (tx, ty) in &tiles {
+                let g = GridPosition::new(*tx, *ty);
+                if *tx < 0 || *ty < 0 || *tx >= MAP_WIDTH as i32 || *ty >= MAP_HEIGHT as i32 {
+                    continue;
+                }
+                if crate::map::generation::building_footprint_has_water(g, 1, 1, &config.terrain_grid) {
+                    continue;
+                }
+                if !resources.can_afford(cost_per.0, cost_per.1, cost_per.2, cost_per.3) {
+                    break;
+                }
+                resources.spend(cost_per.0, cost_per.1, cost_per.2, cost_per.3);
+                let e = spawn_building(&mut commands, &mut images, kind, Team(0), g, true);
+                placed.push((e, g.to_world()));
+            }
+
+            if let Some((first_bld, first_pos)) = placed.first() {
+                let mut closest: Option<(Entity, f32)> = None;
+                for (ve, vtf) in &selected_villagers {
+                    let d = vtf.translation.truncate().distance(*first_pos);
+                    if closest.map_or(true, |(_, cd)| d < cd) {
+                        closest = Some((ve, d));
+                    }
+                }
+                if let Some((ve, _)) = closest {
+                    commands.entity(ve).insert((
+                        ConstructTarget(*first_bld),
+                        MoveTarget(*first_pos),
+                        UnitState::Constructing { building: *first_bld },
+                    ));
+                }
+            }
+
+            cancel_placement(&mut placement, &mut commands);
+        } else {
+            placement.wall_start = Some(grid);
+        }
+        return;
+    }
+
     let (tw, th) = kind.tile_size();
     if crate::map::generation::building_footprint_has_water(
         grid,
@@ -298,6 +367,34 @@ pub fn place_building_system(
     cancel_placement(&mut placement, &mut commands);
 }
 
+fn line_between(x0: i32, y0: i32, x1: i32, y1: i32) -> Vec<(i32, i32)> {
+    let mut points = Vec::new();
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    let mut cx = x0;
+    let mut cy = y0;
+
+    loop {
+        points.push((cx, cy));
+        if cx == x1 && cy == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            cx += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            cy += sy;
+        }
+    }
+    points
+}
+
 fn cancel_placement(placement: &mut PlacementMode, commands: &mut Commands) {
     if let Some(ghost) = placement.ghost {
         commands.entity(ghost).despawn();
@@ -309,6 +406,7 @@ fn cancel_placement(placement: &mut PlacementMode, commands: &mut Commands) {
     placement.kind = None;
     placement.ghost = None;
     placement.menu_entity = None;
+    placement.wall_start = None;
 }
 
 pub fn show_placement_ui(

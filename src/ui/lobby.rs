@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use crate::GameSettings;
 use crate::GameState;
 use crate::map::generation::MapType;
+use crate::civilization::{Civilization, PlayerCivilization};
 
 #[derive(Component)]
 pub struct LobbyRoot;
@@ -20,6 +21,12 @@ pub struct StartButton;
 
 #[derive(Component)]
 pub struct MapDescription;
+
+#[derive(Component)]
+pub struct CivButton(pub Civilization);
+
+#[derive(Component)]
+pub struct CivDescription;
 
 const MIN_PLAYERS: usize = 2;
 const MAX_PLAYERS: usize = 4;
@@ -154,6 +161,47 @@ pub fn setup_lobby(mut commands: Commands) {
                     ));
                 });
 
+                // Civilization selection
+                panel.spawn((
+                    Text::new("Civilization"),
+                    TextFont { font_size: 16.0, ..default() },
+                    TextColor(Color::srgb(0.85, 0.85, 0.85)),
+                ));
+
+                panel.spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(8.0),
+                    ..default()
+                }).with_children(|row| {
+                    for civ in Civilization::ALL {
+                        let is_selected = civ == Civilization::Britons;
+                        row.spawn((
+                            CivButton(civ),
+                            Button,
+                            Node {
+                                padding: UiRect::axes(Val::Px(14.0), Val::Px(10.0)),
+                                ..default()
+                            },
+                            BackgroundColor(if is_selected {
+                                Color::srgb(0.25, 0.45, 0.70)
+                            } else {
+                                Color::srgb(0.18, 0.18, 0.24)
+                            }),
+                        )).with_child((
+                            Text::new(civ.label()),
+                            TextFont { font_size: 15.0, ..default() },
+                            TextColor(Color::srgb(0.95, 0.95, 0.95)),
+                        ));
+                    }
+                });
+
+                panel.spawn((
+                    CivDescription,
+                    Text::new(Civilization::Britons.description()),
+                    TextFont { font_size: 13.0, ..default() },
+                    TextColor(Color::srgb(0.55, 0.55, 0.55)),
+                ));
+
                 // Start button
                 panel.spawn((
                     StartButton,
@@ -243,6 +291,38 @@ pub fn lobby_start_button(
     }
 }
 
+pub fn lobby_civ_buttons(
+    interaction_q: Query<
+        (&Interaction, &CivButton),
+        (Changed<Interaction>, With<Button>),
+    >,
+    mut all_civ_btns: Query<(&CivButton, &mut BackgroundColor)>,
+    mut player_civ: ResMut<PlayerCivilization>,
+    mut desc_q: Query<&mut Text, With<CivDescription>>,
+) {
+    let mut pressed_civ = None;
+    for (interaction, btn) in &interaction_q {
+        if *interaction == Interaction::Pressed {
+            pressed_civ = Some(btn.0);
+        }
+    }
+
+    let Some(civ) = pressed_civ else { return };
+    player_civ.0 = civ;
+
+    for (civ_btn, mut bg) in &mut all_civ_btns {
+        *bg = if civ_btn.0 == player_civ.0 {
+            BackgroundColor(Color::srgb(0.25, 0.45, 0.70))
+        } else {
+            BackgroundColor(Color::srgb(0.18, 0.18, 0.24))
+        };
+    }
+
+    for mut text in &mut desc_q {
+        **text = civ.description().to_string();
+    }
+}
+
 pub fn lobby_button_hover(
     mut interaction_q: Query<
         (&Interaction, &mut BackgroundColor),
@@ -251,6 +331,7 @@ pub fn lobby_button_hover(
             With<Button>,
             Without<MapTypeButton>,
             Without<PlayerCountButton>,
+            Without<CivButton>,
         ),
     >,
 ) {

@@ -15,6 +15,7 @@ pub fn movement_system(
     time: Res<Time>,
     config: Res<MapConfig>,
     building_occupancy: Res<crate::buildings::BuildingOccupancy>,
+    naval_units: Query<Entity, With<NavalUnit>>,
 ) {
     for (entity, mut transform, speed, target, mut state) in &mut query {
         let current = transform.translation.truncate();
@@ -44,10 +45,18 @@ pub fn movement_system(
             && new_grid.x < MAP_WIDTH as i32
             && new_grid.y >= 0
             && new_grid.y < MAP_HEIGHT as i32;
-        if in_bounds
-            && config.terrain_grid[new_grid.x as usize][new_grid.y as usize].is_walkable()
-            && !building_occupancy.0.contains(&(new_grid.x, new_grid.y))
-        {
+
+        let is_naval = naval_units.contains(entity);
+        let terrain_ok = if is_naval {
+            use crate::map::terrain::TerrainType;
+            in_bounds && config.terrain_grid[new_grid.x as usize][new_grid.y as usize].terrain == TerrainType::Water
+        } else {
+            in_bounds
+                && config.terrain_grid[new_grid.x as usize][new_grid.y as usize].is_walkable()
+                && !building_occupancy.0.contains(&(new_grid.x, new_grid.y))
+        };
+
+        if terrain_ok {
             transform.translation.x = new_pos.x;
             transform.translation.y = new_pos.y;
         }

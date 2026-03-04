@@ -4,16 +4,17 @@ use crate::resources::components::{Carrying, ResourceKind, ResourceNode};
 
 pub fn attack_damage_system(
     mut commands: Commands,
-    mut attackers: Query<(Entity, &Transform, &mut AttackStats, &AttackTarget, &mut UnitState), With<Unit>>,
-    mut targets: Query<(Entity, &Transform, &mut Health), With<Unit>>,
+    mut attackers: Query<(Entity, &Transform, &mut AttackStats, &AttackTarget, &mut UnitState, &Team), (With<Unit>, Without<AreaDamage>)>,
+    mut targets: Query<(Entity, &Transform, &mut Health, &Armor, &UnitClass), With<Unit>>,
     time: Res<Time>,
+    techs: Res<crate::buildings::research::ResearchedTechnologies>,
 ) {
     let mut damage_events: Vec<(Entity, f32)> = Vec::new();
 
-    for (attacker_entity, attacker_transform, mut attack_stats, attack_target, mut state) in &mut attackers {
+    for (attacker_entity, attacker_transform, mut attack_stats, attack_target, mut state, atk_team) in &mut attackers {
         let target_entity = attack_target.0;
 
-        let Ok((_, target_transform, _)) = targets.get(target_entity) else {
+        let Ok((_, target_transform, _, target_armor, &target_class)) = targets.get(target_entity) else {
             commands.entity(attacker_entity).remove::<AttackTarget>();
             *state = UnitState::Idle;
             continue;
@@ -28,7 +29,27 @@ pub fn attack_damage_system(
             *state = UnitState::Attacking;
             attack_stats.cooldown.tick(time.delta());
             if attack_stats.cooldown.just_finished() {
-                damage_events.push((target_entity, attack_stats.damage));
+                let mut eff_armor = target_armor.clone();
+                let mut melee_bonus = 0.0f32;
+                let mut pierce_bonus = 0.0f32;
+
+                if atk_team.0 == 0 {
+                    melee_bonus = techs.melee_attack_bonus();
+                    pierce_bonus = techs.pierce_attack_bonus();
+                }
+                if target_class != UnitClass::Building {
+                    eff_armor.melee += techs.melee_armor_bonus();
+                    eff_armor.pierce += techs.pierce_armor_bonus();
+                }
+
+                let melee = (attack_stats.melee_damage + melee_bonus - eff_armor.melee).max(0.0);
+                let pierce = (attack_stats.pierce_damage + pierce_bonus - eff_armor.pierce).max(0.0);
+                let bonus: f32 = attack_stats.bonuses.iter()
+                    .filter(|b| b.vs_class == target_class)
+                    .map(|b| b.amount)
+                    .sum();
+                let dmg = (melee + pierce + bonus).max(1.0);
+                damage_events.push((target_entity, dmg));
             }
         } else {
             *state = UnitState::Moving;
@@ -36,7 +57,7 @@ pub fn attack_damage_system(
     }
 
     for (target_entity, damage) in damage_events {
-        if let Ok((_, _, mut health)) = targets.get_mut(target_entity) {
+        if let Ok((_, _, mut health, _, _)) = targets.get_mut(target_entity) {
             health.current -= damage;
         }
     }
@@ -72,10 +93,16 @@ pub fn chase_system(
 
 pub fn death_system(
     mut commands: Commands,
-    query: Query<(Entity, &Health), With<Unit>>,
+    query: Query<(Entity, &Health, &Team), With<Unit>>,
+    mut stats: ResMut<crate::ui::stats::GameStats>,
 ) {
-    for (entity, health) in &query {
+    for (entity, health, team) in &query {
         if health.current <= 0.0 {
+            if team.0 == 0 {
+                stats.units_lost += 1;
+            } else {
+                stats.enemy_units_killed += 1;
+            }
             commands.entity(entity).despawn();
         }
     }
@@ -151,6 +178,102 @@ pub fn selection_health_bar_system(
         let fraction = resource.remaining as f32 / resource.max_amount.max(1) as f32;
         let pos = transform.translation.truncate() + Vec2::new(0.0, 30.0);
         draw_hp_bar(&mut gizmos, pos, 36.0, fraction);
+    }
+}
+
+pub fn aoe_damage_system(
+    mut attackers: Query<(Entity, &Transform, &mut AttackStats, &AttackTarget, &mut UnitState, &Team, &AreaDamage), With<Unit>>,
+    mut targets: Query<(Entity, &Transform, &mut Health, &Armor, &Team), (With<Unit>, Without<AreaDamage>)>,
+    time: Res<Time>,
+) {
+    let mut splash_events: Vec<(Vec2, f32, f32, u8)> = Vec::new();
+
+    for (_entity, atk_tf, mut attack, atk_target, mut state, team, aoe) in &mut attackers {
+        let Ok((_, target_tf, _, _, _)) = targets.get(atk_target.0) else {
+            continue;
+        };
+
+        let dist = atk_tf.translation.truncate().distance(target_tf.translation.truncate());
+        let range_px = attack.range * crate::map::TILE_SIZE;
+
+        if dist <= range_px {
+            *state = UnitState::Attacking;
+            attack.cooldown.tick(time.delta());
+            if attack.cooldown.just_finished() {
+                let impact = target_tf.translation.truncate();
+                splash_events.push((impact, aoe.radius * crate::map::TILE_SIZE, attack.pierce_damage, team.0));
+            }
+        } else {
+            *state = UnitState::Moving;
+        }
+    }
+
+    for (impact, radius, damage, attacker_team) in splash_events {
+        for (_, target_tf, mut health, armor, target_team) in &mut targets {
+            if target_team.0 == attacker_team {
+                continue;
+            }
+            let dist = target_tf.translation.truncate().distance(impact);
+            if dist <= radius {
+                let falloff = 1.0 - (dist / radius) * 0.5;
+                let effective = ((damage * falloff) - armor.pierce).max(1.0);
+                health.current -= effective;
+            }
+        }
+    }
+}
+
+pub fn attack_move_scan_system(
+    mut commands: Commands,
+    movers: Query<(Entity, &Transform, &AttackStats, &Team, &MovementIntent), (With<Unit>, Without<AttackTarget>)>,
+    potential_targets: Query<(Entity, &Transform, &Team, &Health), With<Unit>>,
+) {
+    for (unit_entity, unit_tf, attack, unit_team, intent) in &movers {
+        let is_aggressive = matches!(intent, MovementIntent::AttackMove | MovementIntent::Patrol { .. });
+        if !is_aggressive {
+            continue;
+        }
+
+        let scan_range = (attack.range + 4.0) * crate::map::TILE_SIZE;
+        let unit_pos = unit_tf.translation.truncate();
+        let mut best: Option<(Entity, f32)> = None;
+
+        for (target_entity, target_tf, target_team, target_health) in &potential_targets {
+            if target_team.0 == unit_team.0 || target_health.current <= 0.0 {
+                continue;
+            }
+            let dist = unit_pos.distance(target_tf.translation.truncate());
+            if dist < scan_range {
+                if best.is_none() || dist < best.unwrap().1 {
+                    best = Some((target_entity, dist));
+                }
+            }
+        }
+
+        if let Some((enemy, _)) = best {
+            commands.entity(unit_entity)
+                .insert(AttackTarget(enemy))
+                .insert(UnitState::Attacking);
+        }
+    }
+}
+
+pub fn patrol_system(
+    mut commands: Commands,
+    mut patrollers: Query<(Entity, &Transform, &mut MovementIntent), (With<Unit>, Without<AttackTarget>)>,
+) {
+    for (entity, transform, mut intent) in &mut patrollers {
+        if let MovementIntent::Patrol { a, b, ref mut going_to_b } = *intent {
+            let pos = transform.translation.truncate();
+            let target = if *going_to_b { b } else { a };
+            let dist = pos.distance(target);
+
+            if dist < 20.0 {
+                *going_to_b = !*going_to_b;
+                let next = if *going_to_b { b } else { a };
+                commands.entity(entity).insert(MoveTarget(next));
+            }
+        }
     }
 }
 

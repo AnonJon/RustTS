@@ -5,6 +5,9 @@ pub mod combat;
 pub mod types;
 pub mod animation;
 pub mod pathfinding;
+pub mod monk;
+pub mod civ_bonus;
+pub mod naval;
 
 use bevy::prelude::*;
 use components::*;
@@ -32,6 +35,11 @@ impl Plugin for UnitPlugin {
                 path_following_system,
                 movement_system,
                 attack_damage_system,
+                aoe_damage_system,
+                attack_move_scan_system,
+                patrol_system,
+            ).run_if(in_state(GameState::InGame)))
+            .add_systems(Update, (
                 chase_system,
                 death_system,
                 health_bar_system,
@@ -41,6 +49,17 @@ impl Plugin for UnitPlugin {
                 animation_system,
                 facing_system,
                 separation_system,
+            ).run_if(in_state(GameState::InGame)))
+            .add_systems(Update, (
+                monk::monk_heal_system,
+                monk::monk_convert_system,
+                monk::monk_auto_heal_system,
+                monk::relic_pickup_system,
+                monk::relic_deposit_system,
+                monk::relic_income_system,
+                monk::relic_drop_on_death_system,
+                civ_bonus::apply_civ_bonuses,
+                naval::fishing_ship_system,
             ).run_if(in_state(GameState::InGame)));
     }
 }

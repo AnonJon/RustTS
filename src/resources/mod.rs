@@ -1,5 +1,7 @@
 pub mod components;
 pub mod gathering;
+pub mod market;
+pub mod animals;
 
 use bevy::prelude::*;
 use components::*;
@@ -13,13 +15,19 @@ pub struct ResourcePlugin;
 
 impl Plugin for ResourcePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(PlayerResources {
+        app.init_resource::<market::MarketPrices>()
+            .insert_resource(PlayerResources {
                 food: 200,
                 wood: 200,
                 gold: 100,
                 stone: 50,
             })
-            .add_systems(OnEnter(GameState::InGame), spawn_resource_nodes.after(generate_map_config))
+            .add_systems(OnEnter(GameState::InGame), (
+                spawn_resource_nodes.after(generate_map_config),
+                spawn_animals_system.after(generate_map_config),
+                spawn_relics_system.after(generate_map_config),
+                spawn_fish_system.after(generate_map_config),
+            ))
             .add_systems(Update, (
                 gathering_system,
                 returning_system,
@@ -29,6 +37,11 @@ impl Plugin for ResourcePlugin {
                 gather_move_recovery_system,
                 floating_text_system,
                 auto_reseek_system,
+                farm_auto_reseed_system,
+                market::trade_cart_system,
+                animals::animal_flee_system,
+                animals::animal_movement_system,
+                animals::animal_death_system,
             ).run_if(in_state(GameState::InGame)));
     }
 }
@@ -40,6 +53,124 @@ const TREE_SPRITES: &[&str] = &[
     "textures/trees/spr_Tree_02_01_0.png",
     "textures/trees/spr_Tree_02_02_0.png",
 ];
+
+fn spawn_fish_system(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    config: Res<MapConfig>,
+) {
+    use crate::map::terrain::TerrainType;
+
+    let fish_texture = create_resource_texture(&mut images, [60, 120, 200, 255]);
+    let map_w = config.terrain_grid.len();
+    let map_h = if map_w > 0 { config.terrain_grid[0].len() } else { 0 };
+    let mut count = 0u32;
+
+    for gx in (2..map_w.saturating_sub(2)).step_by(6) {
+        for gy in (2..map_h.saturating_sub(2)).step_by(6) {
+            if config.terrain_grid[gx][gy].terrain != TerrainType::Water {
+                continue;
+            }
+            let has_adjacent_water = [(0,1),(0,-1),(1,0),(-1,0)].iter().all(|&(dx,dy)| {
+                let nx = gx as i32 + dx;
+                let ny = gy as i32 + dy;
+                nx >= 0 && ny >= 0 && (nx as usize) < map_w && (ny as usize) < map_h
+                    && config.terrain_grid[nx as usize][ny as usize].terrain == TerrainType::Water
+            });
+            if !has_adjacent_water { continue; }
+
+            let grid = crate::map::GridPosition::new(gx as i32, gy as i32);
+            let world = grid.to_world();
+
+            commands.spawn((
+                ResourceNode {
+                    kind: ResourceKind::Food,
+                    remaining: 250,
+                    max_amount: 250,
+                },
+                grid,
+                Sprite {
+                    image: fish_texture.clone(),
+                    custom_size: Some(bevy::math::Vec2::new(40.0, 30.0)),
+                    ..default()
+                },
+                Transform::from_xyz(world.x, world.y, 4.0),
+            ));
+            count += 1;
+            if count >= 12 { return; }
+        }
+    }
+}
+
+fn spawn_relics_system(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    config: Res<MapConfig>,
+) {
+    use crate::units::components::Relic;
+    use crate::map::terrain::TerrainType;
+
+    let relic_texture = create_resource_texture(&mut images, [255, 215, 0, 255]);
+    let map_w = config.terrain_grid.len() as i32;
+    let map_h = if map_w > 0 { config.terrain_grid[0].len() as i32 } else { 0 };
+    let cx = map_w / 2;
+    let cy = map_h / 2;
+
+    let relic_offsets = [
+        (0, 0),
+        (8, 6),
+        (-8, 6),
+        (6, -8),
+        (-6, -8),
+    ];
+
+    for (dx, dy) in relic_offsets {
+        let mut rx = (cx + dx).clamp(1, map_w - 2);
+        let mut ry = (cy + dy).clamp(1, map_h - 2);
+
+        for r in 0..5 {
+            let mut found = false;
+            for ddx in -r..=r {
+                for ddy in -r..=r {
+                    let nx = (rx + ddx).clamp(0, map_w - 1) as usize;
+                    let ny = (ry + ddy).clamp(0, map_h - 1) as usize;
+                    if config.terrain_grid[nx][ny].terrain != TerrainType::Water
+                        && config.terrain_grid[nx][ny].terrain != TerrainType::DarkGrass
+                    {
+                        rx = nx as i32;
+                        ry = ny as i32;
+                        found = true;
+                        break;
+                    }
+                }
+                if found { break; }
+            }
+            if found { break; }
+        }
+
+        let grid = crate::map::GridPosition::new(rx, ry);
+        let world = grid.to_world();
+
+        commands.spawn((
+            Relic,
+            grid,
+            Sprite {
+                image: relic_texture.clone(),
+                custom_size: Some(bevy::math::Vec2::new(32.0, 32.0)),
+                ..default()
+            },
+            Transform::from_xyz(world.x, world.y, 8.0),
+        ));
+    }
+}
+
+fn spawn_animals_system(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    config: Res<MapConfig>,
+) {
+    animals::spawn_animals(&mut commands, &mut images, &config);
+}
 
 fn spawn_resource_nodes(
     mut commands: Commands,

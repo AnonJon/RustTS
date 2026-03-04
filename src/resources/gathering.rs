@@ -103,6 +103,7 @@ pub fn returning_system(
     resource_nodes: Query<&Transform, With<ResourceNode>>,
     farm_buildings: Query<(&Transform, &Building), Without<ResourceNode>>,
     mut player_resources: ResMut<PlayerResources>,
+    mut game_stats: ResMut<crate::ui::stats::GameStats>,
 ) {
     for (unit_entity, unit_tf, mut state, team, carrying) in &mut returners {
         let (drop_off_entity, then_gather) = match &*state {
@@ -126,6 +127,12 @@ pub fn returning_system(
         if let Some(mut c) = carrying {
             if c.has_resources() && team.0 == 0 {
                 let (kind, amount) = c.take_all();
+                match kind {
+                    ResourceKind::Food => game_stats.food_gathered += amount,
+                    ResourceKind::Wood => game_stats.wood_gathered += amount,
+                    ResourceKind::Gold => game_stats.gold_gathered += amount,
+                    ResourceKind::Stone => game_stats.stone_gathered += amount,
+                }
                 player_resources.add(kind, amount);
             } else {
                 c.amount = 0;
@@ -157,7 +164,7 @@ pub fn farm_system(
         (Entity, &Transform, &mut UnitState, &Team, Option<&mut GatherTimer>, Option<&mut Carrying>),
         With<Unit>,
     >,
-    farms: Query<(Entity, &Transform, &Building), Without<Unit>>,
+    mut farms: Query<(Entity, &Transform, &Building, Option<&mut FarmFood>), Without<Unit>>,
     drop_offs: Query<(Entity, &Transform, &DropOff, &Team), Without<Unit>>,
     time: Res<Time>,
 ) {
@@ -167,11 +174,19 @@ pub fn farm_system(
             _ => continue,
         };
 
-        let Ok((_, farm_tf, _)) = farms.get(farm_entity) else {
+        let Ok((_, farm_tf, _, farm_food)) = farms.get_mut(farm_entity) else {
             *state = UnitState::Idle;
             commands.entity(unit_entity).remove::<GatherTimer>();
             continue;
         };
+
+        if let Some(ref ff) = farm_food {
+            if ff.remaining == 0 {
+                *state = UnitState::Idle;
+                commands.entity(unit_entity).remove::<GatherTimer>();
+                continue;
+            }
+        }
 
         let distance = unit_tf.translation.truncate()
             .distance(farm_tf.translation.truncate());
@@ -208,6 +223,9 @@ pub fn farm_system(
                 if let Some(mut c) = carrying {
                     c.kind = Some(ResourceKind::Food);
                     c.amount += 1;
+                }
+                if let Some(mut ff) = farm_food {
+                    ff.remaining = ff.remaining.saturating_sub(1);
                 }
             }
         } else {
@@ -385,4 +403,42 @@ fn find_nearest_drop_off(
         }
     }
     nearest
+}
+
+pub fn farm_auto_reseed_system(
+    mut commands: Commands,
+    depleted_farms: Query<(Entity, &Transform, &Team, &FarmFood, &Building), Without<Unit>>,
+    reseeders: Query<(&Transform, &Team, &AutoReseed), (With<Building>, Without<FarmFood>)>,
+    mut resources: ResMut<PlayerResources>,
+    mut images: ResMut<Assets<bevy::prelude::Image>>,
+) {
+    for (farm_entity, farm_tf, farm_team, farm_food, _building) in &depleted_farms {
+        if farm_food.remaining > 0 {
+            continue;
+        }
+        if farm_team.0 != 0 {
+            continue;
+        }
+
+        let farm_pos = farm_tf.translation.truncate();
+        let has_reseeder = reseeders.iter().any(|(bld_tf, bld_team, auto)| {
+            bld_team.0 == farm_team.0
+                && auto.0
+                && bld_tf.translation.truncate().distance(farm_pos) < TILE_SIZE * 12.0
+        });
+
+        if !has_reseeder {
+            continue;
+        }
+
+        let (f, w, g, s) = crate::buildings::components::BuildingKind::Farm.build_cost();
+        if !resources.spend(f, w, g, s) {
+            continue;
+        }
+
+        commands.entity(farm_entity).insert(FarmFood::new());
+        commands.entity(farm_entity).insert(Health::new(
+            crate::buildings::components::BuildingKind::Farm.max_hp(),
+        ));
+    }
 }
