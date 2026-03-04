@@ -35,6 +35,7 @@ impl Plugin for UnitPlugin {
                 chase_system,
                 death_system,
                 health_bar_system,
+                selection_health_bar_system,
                 carry_indicator_system,
                 gather_visual_system,
                 animation_system,
@@ -62,7 +63,8 @@ fn spawn_initial_units(
     let bx = config.player_base().x;
     let by = config.player_base().y;
 
-    let militia_offsets = [(2, 0), (3, 1), (0, 3)];
+    // Spawn outside the TC footprint (TC is 4x4 starting at base pos)
+    let militia_offsets = [(-1, -1), (4, 0), (0, 4)];
     for (dx, dy) in militia_offsets {
         let (lx, ly) = crate::map::generation::find_nearest_land(&config.terrain_grid, bx + dx, by + dy);
         let grid = crate::map::GridPosition::new(lx, ly);
@@ -77,7 +79,7 @@ fn spawn_initial_units(
         );
     }
 
-    let villager_offsets = [(0, 0), (1, 2)];
+    let villager_offsets = [(-1, 1), (2, -1)];
     for (dx, dy) in villager_offsets {
         let (lx, ly) = crate::map::generation::find_nearest_land(&config.terrain_grid, bx + dx, by + dy);
         let grid = crate::map::GridPosition::new(lx, ly);

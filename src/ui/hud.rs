@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use crate::resources::components::PlayerResources;
 use crate::units::components::*;
 use crate::buildings::components::*;
-use crate::resources::components::{Carrying, ResourceKind};
+use crate::resources::components::{Carrying, ResourceKind, ResourceNode};
 
 #[derive(Component)]
 pub struct ResourceDisplay;
@@ -169,10 +169,28 @@ pub fn update_resource_display(
 pub fn update_unit_info_panel(
     selected_units: Query<(&Health, &Speed, &AttackStats, &UnitState, &Team, Option<&Carrying>), (With<Unit>, With<Selected>)>,
     selected_buildings: Query<(&Building, &Health, Option<&TrainingQueue>), (With<Selected>, Without<Unit>)>,
+    selected_resources: Query<&ResourceNode, (With<Selected>, Without<Unit>, Without<Building>)>,
     mut info_text: Query<&mut Text, With<UnitInfoText>>,
     age: Res<CurrentAge>,
 ) {
     let Ok(mut text) = info_text.single_mut() else { return };
+
+    let resources: Vec<_> = selected_resources.iter().collect();
+    if !resources.is_empty() {
+        if resources.len() == 1 {
+            let node = resources[0];
+            let name = match node.kind {
+                ResourceKind::Wood => "Tree",
+                ResourceKind::Gold => "Gold Mine",
+                ResourceKind::Stone => "Stone Mine",
+                ResourceKind::Food => "Food",
+            };
+            **text = format!("{name}\nRemaining: {} / {}", node.remaining, node.max_amount);
+        } else {
+            **text = format!("{} resources selected", resources.len());
+        }
+        return;
+    }
 
     let buildings: Vec<_> = selected_buildings.iter().collect();
     if !buildings.is_empty() {
@@ -298,6 +316,7 @@ fn format_unit_state(state: &UnitState, carrying: Option<&Carrying>) -> String {
             let amt = carrying.map(|c| c.amount).unwrap_or(0);
             format!("Farming ({amt}/{})", Carrying::MAX_CARRY)
         }
+        UnitState::Constructing { .. } => "Building...".to_string(),
         UnitState::Dead => "Dead".to_string(),
     }
 }

@@ -5,9 +5,9 @@ use crate::buildings::components::Building;
 use crate::resources::components::ResourceNode;
 use crate::map::TILE_SIZE;
 
-const GATHER_RANGE: f32 = 1.5;
+const GATHER_RANGE: f32 = 0.6;
 const GATHER_RATE: f32 = 1.0;
-const DROP_OFF_RANGE: f32 = 2.0;
+const DROP_OFF_RANGE: f32 = 1.5;
 const FARM_RATE: f32 = 2.0;
 
 #[derive(Component)]

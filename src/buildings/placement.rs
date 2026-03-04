@@ -3,9 +3,9 @@ use bevy::window::PrimaryWindow;
 use crate::camera::MainCamera;
 use crate::map::{GridPosition, TILE_SIZE, MAP_WIDTH, MAP_HEIGHT};
 use crate::units::components::*;
-use crate::resources::components::PlayerResources;
+use crate::resources::components::{PlayerResources, Carrying};
 use super::components::*;
-use super::spawn_building;
+use super::{spawn_building, load_building_texture, sprite_path};
 
 #[derive(Resource, Default)]
 pub struct PlacementMode {
@@ -34,6 +34,7 @@ pub fn enter_placement_mode(
     keys: Res<ButtonInput<KeyCode>>,
     mut placement: ResMut<PlacementMode>,
     mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
     selected_villagers: Query<&Unit, With<Selected>>,
     age: Res<CurrentAge>,
     resources: Res<PlayerResources>,
@@ -81,14 +82,23 @@ pub fn enter_placement_mode(
 
             placement.kind = Some(kind);
             let (tw, th) = kind.tile_size();
-            let pixel_w = tw as f32 * TILE_SIZE;
-            let pixel_h = th as f32 * TILE_SIZE;
+            let iso_tile_h = TILE_SIZE / 2.0;
+            let pixel_w = (tw as f32 * TILE_SIZE) as u32;
+            let pixel_h = (th as f32 * iso_tile_h) as u32;
+
+            let texture = load_building_texture(&mut images, kind, pixel_w, pixel_h);
+            let display_size = if sprite_path(kind).is_some() {
+                kind.sprite_display_size(pixel_w as f32, pixel_h as f32)
+            } else {
+                Vec2::new(pixel_w as f32, pixel_h as f32)
+            };
 
             let ghost = commands.spawn((
                 GhostBuilding,
                 Sprite {
-                    color: Color::srgba(0.5, 1.0, 0.5, 0.4),
-                    custom_size: Some(Vec2::new(pixel_w, pixel_h)),
+                    image: texture,
+                    custom_size: Some(display_size),
+                    color: Color::srgba(1.0, 1.0, 1.0, 0.5),
                     ..default()
                 },
                 Transform::from_xyz(0.0, 0.0, 15.0),
@@ -205,6 +215,7 @@ pub fn place_building_system(
     camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     existing_buildings: Query<(&Transform, &Building)>,
     age: Res<CurrentAge>,
+    selected_villagers: Query<(Entity, &Transform), (With<Selected>, With<Carrying>, With<Unit>)>,
 ) {
     if !placement.active || placement.kind.is_none() {
         return;
@@ -265,7 +276,24 @@ pub fn place_building_system(
         return;
     }
 
-    spawn_building(&mut commands, &mut images, kind, Team(0), grid);
+    let building_entity = spawn_building(&mut commands, &mut images, kind, Team(0), grid, true);
+
+    let build_site = snapped;
+    let mut closest: Option<(Entity, f32)> = None;
+    for (villager_e, villager_tf) in &selected_villagers {
+        let dist = villager_tf.translation.truncate().distance(build_site);
+        if closest.map_or(true, |(_, d)| dist < d) {
+            closest = Some((villager_e, dist));
+        }
+    }
+
+    if let Some((villager_e, _)) = closest {
+        commands.entity(villager_e).insert((
+            ConstructTarget(building_entity),
+            MoveTarget(build_site),
+            UnitState::Constructing { building: building_entity },
+        ));
+    }
 
     cancel_placement(&mut placement, &mut commands);
 }

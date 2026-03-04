@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use components::*;
 use gathering::*;
 use crate::map::generation::MapConfig;
+use crate::map::terrain::TerrainType;
 use crate::GameState;
 use crate::map::generation::generate_map_config;
 
@@ -57,8 +58,12 @@ fn spawn_resource_nodes(
 
     let mut tree_idx = 0usize;
 
+    // Track which tiles already have a resource from clusters
+    let mut occupied: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+
     for cluster in &config.resource_clusters {
         for &(x, y) in &cluster.positions {
+            occupied.insert((x, y));
             let grid = crate::map::GridPosition::new(x, y);
             let world = grid.to_world();
 
@@ -85,6 +90,39 @@ fn spawn_resource_nodes(
                 Sprite {
                     image,
                     custom_size: Some(size),
+                    ..default()
+                },
+                Transform::from_xyz(world.x, world.y, 5.0),
+            ));
+        }
+    }
+
+    // Every DarkGrass (forest) terrain tile gets a harvestable tree entity
+    for (gx, col) in config.terrain_grid.iter().enumerate() {
+        for (gy, tile) in col.iter().enumerate() {
+            if tile.terrain != TerrainType::DarkGrass {
+                continue;
+            }
+            let (x, y) = (gx as i32, gy as i32);
+            if occupied.contains(&(x, y)) {
+                continue;
+            }
+            let grid = crate::map::GridPosition::new(x, y);
+            let world = grid.to_world();
+            let handle = tree_handles[tree_idx % tree_handles.len()].clone();
+            tree_idx = tree_idx.wrapping_add(
+                (gx).wrapping_mul(7) ^ (gy).wrapping_mul(13) | 1
+            );
+            commands.spawn((
+                ResourceNode {
+                    kind: ResourceKind::Wood,
+                    remaining: 150,
+                    max_amount: 150,
+                },
+                grid,
+                Sprite {
+                    image: handle,
+                    custom_size: Some(Vec2::new(90.0, 103.0)),
                     ..default()
                 },
                 Transform::from_xyz(world.x, world.y, 5.0),

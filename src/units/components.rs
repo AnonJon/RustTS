@@ -54,8 +54,14 @@ pub enum UnitState {
     FarmingAt {
         farm: Entity,
     },
+    Constructing {
+        building: Entity,
+    },
     Dead,
 }
+
+#[derive(Component)]
+pub struct ConstructTarget(pub Entity);
 
 #[derive(Component)]
 pub struct Selected;

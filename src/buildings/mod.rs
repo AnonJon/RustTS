@@ -13,6 +13,26 @@ use crate::resources::components::DropOff;
 use crate::GameState;
 use crate::map::generation::generate_map_config;
 
+/// Set of grid tiles occupied by buildings, rebuilt each frame.
+/// Used by movement systems to prevent units walking through buildings.
+#[derive(Resource, Default)]
+pub struct BuildingOccupancy(pub std::collections::HashSet<(i32, i32)>);
+
+fn update_building_occupancy(
+    buildings: Query<(&GridPosition, &Building)>,
+    mut occupancy: ResMut<BuildingOccupancy>,
+) {
+    occupancy.0.clear();
+    for (grid, building) in &buildings {
+        let (tw, th) = building.kind.tile_size();
+        for dx in 0..tw as i32 {
+            for dy in 0..th as i32 {
+                occupancy.0.insert((grid.x + dx, grid.y + dy));
+            }
+        }
+    }
+}
+
 pub struct BuildingPlugin;
 
 impl Plugin for BuildingPlugin {
@@ -20,9 +40,12 @@ impl Plugin for BuildingPlugin {
         app.init_resource::<CurrentAge>()
             .init_resource::<AgeUpProgress>()
             .init_resource::<PlacementMode>()
+            .init_resource::<BuildingOccupancy>()
             .add_systems(OnEnter(GameState::InGame), spawn_starting_buildings.after(generate_map_config))
             .add_systems(Update, (
+                update_building_occupancy,
                 training_system,
+                construction_system,
                 age_up_system,
                 building_death_system,
                 building_selection_system,
@@ -50,6 +73,7 @@ fn spawn_starting_buildings(
         BuildingKind::TownCenter,
         Team(0),
         pos,
+        false,
     );
 }
 
@@ -59,6 +83,7 @@ pub fn spawn_building(
     kind: BuildingKind,
     team: Team,
     grid: GridPosition,
+    under_construction: bool,
 ) -> Entity {
     let (tw, th) = kind.tile_size();
     let iso_tile_h = TILE_SIZE / 2.0;
@@ -73,6 +98,13 @@ pub fn spawn_building(
         None
     };
 
+    let initial_alpha = if under_construction { 0.3 } else { 1.0 };
+    let initial_hp = if under_construction {
+        kind.max_hp() * 0.1
+    } else {
+        kind.max_hp()
+    };
+
     let mut entity_cmds = commands.spawn((
         Building {
             kind,
@@ -80,36 +112,46 @@ pub fn spawn_building(
         },
         team,
         grid,
-        Health::new(kind.max_hp()),
+        Health {
+            current: initial_hp,
+            max: kind.max_hp(),
+        },
         Sprite {
             image: texture,
             custom_size: sprite_size,
+            color: Color::srgba(1.0, 1.0, 1.0, initial_alpha),
             ..default()
         },
         Transform::from_xyz(world.x, world.y, 5.0),
     ));
 
-    if !kind.can_train().is_empty() {
+    if under_construction {
+        entity_cmds.insert(UnderConstruction::new(kind));
+    }
+
+    if !under_construction && !kind.can_train().is_empty() {
         entity_cmds.insert(TrainingQueue {
             queue: Vec::new(),
         });
     }
 
-    let drop_off = match kind {
-        BuildingKind::TownCenter => Some(DropOff::all()),
-        BuildingKind::LumberCamp => Some(DropOff::wood()),
-        BuildingKind::MiningCamp => Some(DropOff::mining()),
-        BuildingKind::Mill | BuildingKind::Farm => Some(DropOff::food()),
-        _ => None,
-    };
-    if let Some(d) = drop_off {
-        entity_cmds.insert(d);
+    if !under_construction {
+        let drop_off = match kind {
+            BuildingKind::TownCenter => Some(DropOff::all()),
+            BuildingKind::LumberCamp => Some(DropOff::wood()),
+            BuildingKind::MiningCamp => Some(DropOff::mining()),
+            BuildingKind::Mill | BuildingKind::Farm => Some(DropOff::food()),
+            _ => None,
+        };
+        if let Some(d) = drop_off {
+            entity_cmds.insert(d);
+        }
     }
 
     entity_cmds.id()
 }
 
-fn sprite_path(kind: BuildingKind) -> Option<&'static str> {
+pub fn sprite_path(kind: BuildingKind) -> Option<&'static str> {
     match kind {
         BuildingKind::TownCenter => Some("assets/sprites/buildings/castlekeep_14.png"),
         BuildingKind::LumberCamp => Some("assets/textures/lumber_camp.png"),
@@ -118,7 +160,7 @@ fn sprite_path(kind: BuildingKind) -> Option<&'static str> {
     }
 }
 
-fn load_building_texture(
+pub fn load_building_texture(
     images: &mut Assets<Image>,
     kind: BuildingKind,
     width: u32,

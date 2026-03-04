@@ -130,6 +130,19 @@ impl BuildingKind {
         }
     }
 
+    pub fn build_time(self) -> f32 {
+        match self {
+            BuildingKind::TownCenter => 150.0,
+            BuildingKind::Barracks => 50.0,
+            BuildingKind::ArcheryRange => 50.0,
+            BuildingKind::Stable => 50.0,
+            BuildingKind::Farm => 15.0,
+            BuildingKind::LumberCamp => 25.0,
+            BuildingKind::MiningCamp => 25.0,
+            BuildingKind::Mill => 35.0,
+        }
+    }
+
     pub fn color(self) -> [u8; 4] {
         match self {
             BuildingKind::TownCenter => [180, 140, 80, 255],
@@ -158,6 +171,21 @@ pub struct TrainingQueue {
 pub struct TrainingSlot {
     pub kind: UnitKind,
     pub remaining: Timer,
+}
+
+#[derive(Component)]
+pub struct UnderConstruction {
+    pub progress: f32,
+    pub build_time: f32,
+}
+
+impl UnderConstruction {
+    pub fn new(kind: BuildingKind) -> Self {
+        Self {
+            progress: 0.0,
+            build_time: kind.build_time(),
+        }
+    }
 }
 
 impl UnitKind {

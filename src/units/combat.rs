@@ -81,41 +81,76 @@ pub fn death_system(
     }
 }
 
+fn hp_bar_color(fraction: f32) -> Color {
+    if fraction > 0.6 {
+        Color::srgba(0.0, 0.8, 0.0, 0.9)
+    } else if fraction > 0.3 {
+        Color::srgba(0.9, 0.7, 0.0, 0.9)
+    } else {
+        Color::srgba(0.9, 0.1, 0.0, 0.9)
+    }
+}
+
+fn draw_hp_bar(gizmos: &mut Gizmos, center: Vec2, bar_width: f32, fraction: f32) {
+    gizmos.rect_2d(
+        Isometry2d::from_translation(center),
+        Vec2::new(bar_width, 6.0),
+        Color::srgba(0.2, 0.2, 0.2, 0.8),
+    );
+
+    let fill_width = bar_width * fraction.clamp(0.0, 1.0);
+    let fill_center = Vec2::new(
+        center.x - (bar_width - fill_width) / 2.0,
+        center.y,
+    );
+    gizmos.rect_2d(
+        Isometry2d::from_translation(fill_center),
+        Vec2::new(fill_width, 6.0),
+        hp_bar_color(fraction),
+    );
+}
+
 pub fn health_bar_system(
     mut gizmos: Gizmos,
-    query: Query<(&Transform, &Health), With<Unit>>,
+    query: Query<(&Transform, &Health), (With<Unit>, Without<Selected>)>,
 ) {
     for (transform, health) in &query {
         if health.fraction() >= 1.0 {
             continue;
         }
-
         let pos = transform.translation.truncate() + Vec2::new(0.0, 30.0);
-        let bar_width = 40.0;
+        draw_hp_bar(&mut gizmos, pos, 40.0, health.fraction());
+    }
+}
 
-        gizmos.rect_2d(
-            Isometry2d::from_translation(pos),
-            Vec2::new(bar_width, 6.0),
-            Color::srgba(0.2, 0.2, 0.2, 0.8),
-        );
+pub fn selection_health_bar_system(
+    mut gizmos: Gizmos,
+    selected_units: Query<(&Transform, &Health), (With<Unit>, With<Selected>)>,
+    selected_buildings: Query<
+        (&Transform, &Health, &crate::buildings::components::Building),
+        (With<Selected>, Without<Unit>, Without<ResourceNode>),
+    >,
+    selected_resources: Query<
+        (&Transform, &ResourceNode),
+        (With<Selected>, Without<Unit>, Without<crate::buildings::components::Building>),
+    >,
+) {
+    for (transform, health) in &selected_units {
+        let pos = transform.translation.truncate() + Vec2::new(0.0, 30.0);
+        draw_hp_bar(&mut gizmos, pos, 40.0, health.fraction());
+    }
 
-        let fill_width = bar_width * health.fraction();
-        let fill_center = Vec2::new(
-            pos.x - (bar_width - fill_width) / 2.0,
-            pos.y,
-        );
-        let color = if health.fraction() > 0.5 {
-            Color::srgba(0.0, 0.8, 0.0, 0.9)
-        } else if health.fraction() > 0.25 {
-            Color::srgba(0.9, 0.7, 0.0, 0.9)
-        } else {
-            Color::srgba(0.9, 0.1, 0.0, 0.9)
-        };
-        gizmos.rect_2d(
-            Isometry2d::from_translation(fill_center),
-            Vec2::new(fill_width, 6.0),
-            color,
-        );
+    for (transform, health, building) in &selected_buildings {
+        let (tw, _) = building.kind.tile_size();
+        let bar_w = (tw as f32 * crate::map::TILE_SIZE * 0.6).max(50.0);
+        let pos = transform.translation.truncate() + Vec2::new(0.0, 40.0);
+        draw_hp_bar(&mut gizmos, pos, bar_w, health.fraction());
+    }
+
+    for (transform, resource) in &selected_resources {
+        let fraction = resource.remaining as f32 / resource.max_amount.max(1) as f32;
+        let pos = transform.translation.truncate() + Vec2::new(0.0, 30.0);
+        draw_hp_bar(&mut gizmos, pos, 36.0, fraction);
     }
 }
 

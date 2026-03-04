@@ -82,12 +82,14 @@ pub fn ai_startup(
         BuildingKind::TownCenter,
         Team(AI_TEAM),
         tc_pos,
+        false,
     );
 
+    // Spawn outside the TC footprint (TC is 4x4)
     let offsets = [
-        (ai_base.x + 2, ai_base.y),
-        (ai_base.x, ai_base.y + 2),
-        (ai_base.x - 2, ai_base.y),
+        (ai_base.x - 1, ai_base.y - 1),
+        (ai_base.x + 4, ai_base.y),
+        (ai_base.x, ai_base.y + 4),
     ];
     for (x, y) in offsets {
         let (lx, ly) = crate::map::generation::find_nearest_land(&config.terrain_grid, x, y);
@@ -124,6 +126,7 @@ pub fn ai_build_system(
     mut images: ResMut<Assets<Image>>,
     ai_buildings: Query<(&Building, &Team)>,
     config: Res<MapConfig>,
+    ai_villagers: Query<(Entity, &Transform, &Team, &UnitState), (With<Unit>, With<crate::resources::components::Carrying>)>,
 ) {
     ai.build_timer.tick(time.delta());
     if !ai.build_timer.just_finished() {
@@ -175,7 +178,28 @@ pub fn ai_build_system(
             }
 
             if ai.resources.spend(f, w, g, s) {
-                spawn_building(&mut commands, &mut images, kind, Team(AI_TEAM), grid);
+                let building_entity = spawn_building(&mut commands, &mut images, kind, Team(AI_TEAM), grid, true);
+
+                let build_site = grid.to_world();
+                let nearest_villager = ai_villagers
+                    .iter()
+                    .filter(|(_, _, t, state)| {
+                        t.0 == AI_TEAM && !matches!(state, UnitState::Constructing { .. })
+                    })
+                    .min_by(|(_, a_tf, _, _), (_, b_tf, _, _)| {
+                        let da = a_tf.translation.truncate().distance_squared(build_site);
+                        let db = b_tf.translation.truncate().distance_squared(build_site);
+                        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(e, _, _, _)| e);
+
+                if let Some(villager_e) = nearest_villager {
+                    commands.entity(villager_e).insert((
+                        ConstructTarget(building_entity),
+                        MoveTarget(build_site),
+                        UnitState::Constructing { building: building_entity },
+                    ));
+                }
             }
             return;
         }

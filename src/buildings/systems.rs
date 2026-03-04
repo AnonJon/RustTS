@@ -2,8 +2,137 @@ use bevy::prelude::*;
 use crate::map::{GridPosition, TILE_SIZE};
 use crate::units::components::*;
 use crate::units::types::{UnitKind, UnitSprites, spawn_unit};
-use crate::resources::components::PlayerResources;
+use crate::resources::components::{PlayerResources, DropOff, ResourceNode, ResourceKind};
 use super::components::*;
+
+const BUILD_RANGE: f32 = TILE_SIZE * 2.0;
+
+pub fn construction_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    constructors: Query<
+        (Entity, &Transform, &UnitState, &ConstructTarget),
+        With<Unit>,
+    >,
+    mut buildings: Query<
+        (Entity, &Transform, &mut UnderConstruction, &mut Health, &mut Sprite, &Building),
+        Without<Unit>,
+    >,
+    resource_nodes: Query<(Entity, &Transform, &ResourceNode), (Without<Unit>, Without<Building>)>,
+) {
+    let dt = time.delta_secs();
+    if dt == 0.0 {
+        return;
+    }
+
+    let mut progress_per_building: std::collections::HashMap<Entity, (f32, Vec<Entity>)> =
+        std::collections::HashMap::new();
+
+    for (villager_e, villager_tf, state, construct_target) in &constructors {
+        let UnitState::Constructing { building } = state else {
+            continue;
+        };
+        if *building != construct_target.0 {
+            continue;
+        }
+
+        let Ok((_, bld_tf, ref uc, _, _, _)) = buildings.get(construct_target.0) else {
+            commands.entity(villager_e)
+                .remove::<ConstructTarget>()
+                .insert(UnitState::Idle);
+            continue;
+        };
+
+        let dist = villager_tf.translation.truncate()
+            .distance(bld_tf.translation.truncate());
+
+        if dist > BUILD_RANGE {
+            continue;
+        }
+
+        let tick = dt / uc.build_time;
+        let entry = progress_per_building
+            .entry(construct_target.0)
+            .or_insert((0.0, Vec::new()));
+        entry.0 += tick;
+        entry.1.push(villager_e);
+    }
+
+    for (building_e, total_tick, builders) in progress_per_building
+        .into_iter()
+        .map(|(e, (t, b))| (e, t, b))
+    {
+        let Ok((_, bld_tf, mut uc, mut health, mut sprite, building)) =
+            buildings.get_mut(building_e) else { continue };
+
+        uc.progress = (uc.progress + total_tick).min(1.0);
+
+        sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.3 + 0.7 * uc.progress);
+        health.current = building.kind.max_hp() * uc.progress.max(0.1);
+
+        if uc.progress < 1.0 {
+            continue;
+        }
+
+        let bld_pos = bld_tf.translation.truncate();
+        let bld_kind = building.kind;
+
+        commands.entity(building_e).remove::<UnderConstruction>();
+        sprite.color = Color::srgba(1.0, 1.0, 1.0, 1.0);
+        health.current = bld_kind.max_hp();
+
+        if !bld_kind.can_train().is_empty() {
+            commands.entity(building_e).insert(TrainingQueue {
+                queue: Vec::new(),
+            });
+        }
+
+        let drop_off = match bld_kind {
+            BuildingKind::TownCenter => Some(DropOff::all()),
+            BuildingKind::LumberCamp => Some(DropOff::wood()),
+            BuildingKind::MiningCamp => Some(DropOff::mining()),
+            BuildingKind::Mill | BuildingKind::Farm => Some(DropOff::food()),
+            _ => None,
+        };
+        if let Some(d) = drop_off {
+            commands.entity(building_e).insert(d);
+        }
+
+        let resource_kind = match bld_kind {
+            BuildingKind::LumberCamp => Some(ResourceKind::Wood),
+            BuildingKind::MiningCamp => Some(ResourceKind::Gold),
+            BuildingKind::Mill => Some(ResourceKind::Food),
+            BuildingKind::Farm => Some(ResourceKind::Food),
+            _ => None,
+        };
+
+        for villager_e in builders {
+            commands.entity(villager_e).remove::<ConstructTarget>();
+
+            if let Some(rk) = resource_kind {
+                if let Some((res_e, res_tf, _)) = resource_nodes
+                    .iter()
+                    .filter(|(_, _, rn)| rn.kind == rk && rn.remaining > 0)
+                    .min_by(|(_, a_tf, _), (_, b_tf, _)| {
+                        let da = a_tf.translation.truncate().distance_squared(bld_pos);
+                        let db = b_tf.translation.truncate().distance_squared(bld_pos);
+                        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                {
+                    commands.entity(villager_e).insert((
+                        UnitState::Gathering { resource: res_e },
+                        MoveTarget(res_tf.translation.truncate()),
+                    ));
+                } else {
+                    commands.entity(villager_e).insert(UnitState::Idle);
+                }
+            } else {
+                commands.entity(villager_e).insert(UnitState::Idle);
+            }
+        }
+    }
+}
+
 
 pub fn training_system(
     mut commands: Commands,
@@ -153,6 +282,8 @@ pub fn building_selection_system(
     buildings: Query<(Entity, &Transform, &Building, &Team)>,
     selected: Query<Entity, With<Selected>>,
     keys: Res<ButtonInput<KeyCode>>,
+    resource_nodes: Query<&Transform, With<crate::resources::components::ResourceNode>>,
+    units: Query<&Transform, With<Unit>>,
 ) {
     if !mouse.just_released(MouseButton::Left) {
         return;
@@ -163,8 +294,17 @@ pub fn building_selection_system(
     let Some(cursor_pos) = window.cursor_position() else { return };
     let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
 
-    for (entity, transform, building, team) in &buildings {
-        if team.0 != 0 { continue; }
+    let resource_nearby = resource_nodes.iter().any(|tf| {
+        tf.translation.truncate().distance(world_pos) < 40.0
+    });
+    let unit_nearby = units.iter().any(|tf| {
+        tf.translation.truncate().distance(world_pos) < 50.0
+    });
+    if resource_nearby || unit_nearby {
+        return;
+    }
+
+    for (entity, transform, building, _team) in &buildings {
         let (tw, th) = building.kind.tile_size();
         let half_w = tw as f32 * TILE_SIZE / 2.0;
         let half_h = th as f32 * TILE_SIZE / 2.0;

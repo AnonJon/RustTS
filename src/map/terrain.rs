@@ -28,7 +28,7 @@ impl TerrainType {
     }
 
     pub fn is_walkable(self) -> bool {
-        !matches!(self, TerrainType::Water)
+        !matches!(self, TerrainType::Water | TerrainType::DarkGrass)
     }
 
     pub fn for_position(x: u32, y: u32, grid: &[Vec<Tile>]) -> Self {

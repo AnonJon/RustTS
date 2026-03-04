@@ -21,6 +21,7 @@ pub fn handle_selection_click(
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     units: Query<(Entity, &Transform, &Team), With<Unit>>,
+    resource_nodes: Query<(Entity, &Transform), With<crate::resources::components::ResourceNode>>,
     selected: Query<Entity, With<Selected>>,
     mut drag_state: Local<DragState>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -59,18 +60,31 @@ pub fn handle_selection_click(
                     }
                 }
 
-                let mut closest: Option<(Entity, f32)> = None;
-                for (entity, transform, team) in &units {
-                    if team.0 != 0 { continue; }
+                let mut closest_unit: Option<(Entity, f32)> = None;
+                for (entity, transform, _team) in &units {
                     let dist = transform.translation.truncate().distance(world_pos);
                     if dist < 50.0 {
-                        if closest.is_none() || dist < closest.unwrap().1 {
-                            closest = Some((entity, dist));
+                        if closest_unit.is_none() || dist < closest_unit.unwrap().1 {
+                            closest_unit = Some((entity, dist));
                         }
                     }
                 }
-                if let Some((entity, _)) = closest {
+
+                if let Some((entity, _)) = closest_unit {
                     commands.entity(entity).insert(Selected);
+                } else {
+                    let mut closest_res: Option<(Entity, f32)> = None;
+                    for (entity, transform) in &resource_nodes {
+                        let dist = transform.translation.truncate().distance(world_pos);
+                        if dist < 40.0 {
+                            if closest_res.is_none() || dist < closest_res.unwrap().1 {
+                                closest_res = Some((entity, dist));
+                            }
+                        }
+                    }
+                    if let Some((entity, _)) = closest_res {
+                        commands.entity(entity).insert(Selected);
+                    }
                 }
             }
         }
@@ -129,8 +143,7 @@ pub fn handle_drag_selection(
             let min_y = start.y.min(end.y);
             let max_y = start.y.max(end.y);
 
-            for (entity, transform, team) in &units {
-                if team.0 != 0 { continue; }
+            for (entity, transform, _team) in &units {
                 let pos = transform.translation.truncate();
                 if pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y {
                     commands.entity(entity).insert(Selected);
@@ -197,16 +210,49 @@ pub fn draw_selection_box(
     }
 }
 
+fn team_selection_color(team: Option<&Team>) -> Color {
+    match team {
+        Some(t) if t.0 != 0 => Color::srgba(1.0, 0.3, 0.3, 0.7),
+        _ => Color::srgba(1.0, 1.0, 1.0, 0.7),
+    }
+}
+
 pub fn draw_selection_indicators(
     mut gizmos: Gizmos,
-    selected_units: Query<&Transform, (With<Unit>, With<Selected>)>,
+    selected_units: Query<(&Transform, Option<&Team>), (With<Unit>, With<Selected>)>,
+    selected_buildings: Query<(&Transform, &crate::buildings::components::Building, Option<&Team>), (With<Selected>, Without<Unit>)>,
+    selected_resources: Query<&Transform, (With<crate::resources::components::ResourceNode>, With<Selected>, Without<Unit>, Without<crate::buildings::components::Building>)>,
 ) {
-    for transform in &selected_units {
+    for (transform, team) in &selected_units {
+        let pos = transform.translation.truncate() - Vec2::new(0.0, 20.0);
+        let color = team_selection_color(team);
+        gizmos.ellipse_2d(
+            Isometry2d::from_translation(pos),
+            Vec2::new(28.0, 14.0),
+            color,
+        );
+    }
+
+    for (transform, building, team) in &selected_buildings {
         let pos = transform.translation.truncate();
-        gizmos.circle_2d(
-            Isometry2d::from_translation(pos - Vec2::new(0.0, 30.0)),
-            44.0,
-            Color::srgba(0.0, 1.0, 0.0, 0.6),
+        let (tw, th) = building.kind.tile_size();
+        let half_w = tw as f32 * crate::map::TILE_SIZE * 0.4;
+        let half_h = th as f32 * crate::map::TILE_SIZE * 0.2;
+        let color = team_selection_color(team);
+        gizmos.ellipse_2d(
+            Isometry2d::from_translation(pos),
+            Vec2::new(half_w, half_h),
+            color,
+        );
+    }
+
+    for transform in &selected_resources {
+        let pos = transform.translation.truncate();
+        let color = team_selection_color(None);
+        gizmos.ellipse_2d(
+            Isometry2d::from_translation(pos),
+            Vec2::new(22.0, 11.0),
+            color,
         );
     }
 }
@@ -220,6 +266,7 @@ pub fn handle_right_click_command(
     enemy_units: Query<(Entity, &Transform, &Team), With<Unit>>,
     resource_nodes: Query<(Entity, &Transform), With<crate::resources::components::ResourceNode>>,
     farm_buildings: Query<(Entity, &Transform, &crate::buildings::components::Building)>,
+    construction_buildings: Query<(Entity, &Transform, &crate::buildings::components::Building), With<crate::buildings::components::UnderConstruction>>,
 ) {
     if !mouse.just_pressed(MouseButton::Right) {
         return;
@@ -265,7 +312,24 @@ pub fn handle_right_click_command(
         }
     }
 
-    // Priority 3: right-click on enemy → attack
+    // Priority 3: right-click on building under construction → villagers help build
+    for (bld_entity, bld_tf, _building) in &construction_buildings {
+        let dist = bld_tf.translation.truncate().distance(world_pos);
+        if dist < 80.0 {
+            for (unit_entity, carrying) in &selected_units {
+                if carrying.is_some() {
+                    commands.entity(unit_entity)
+                        .remove::<AttackTarget>()
+                        .insert(ConstructTarget(bld_entity))
+                        .insert(MoveTarget(bld_tf.translation.truncate()))
+                        .insert(UnitState::Constructing { building: bld_entity });
+                }
+            }
+            return;
+        }
+    }
+
+    // Priority 4: right-click on enemy → attack
     let mut target_enemy: Option<Entity> = None;
     for (entity, transform, team) in &enemy_units {
         if team.0 == 0 { continue; }
@@ -276,7 +340,7 @@ pub fn handle_right_click_command(
         }
     }
 
-    // Priority 4: move to location
+    // Priority 5: move to location
     let selected: Vec<Entity> = selected_units.iter().map(|(e, _)| e).collect();
     let count = selected.len().max(1) as f32;
 
