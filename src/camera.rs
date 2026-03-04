@@ -1,39 +1,51 @@
 use bevy::prelude::*;
 use bevy::input::mouse::MouseWheel;
 use crate::map::{MAP_WIDTH, MAP_HEIGHT, TILE_SIZE};
-use crate::map::generation::MapConfig;
+use crate::map::generation::{MapConfig, generate_map_config};
+use crate::GameState;
 
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_camera)
+        app.add_systems(Startup, spawn_menu_camera)
+            .add_systems(OnEnter(GameState::InGame), reposition_camera.after(generate_map_config))
             .add_systems(Update, (
                 camera_edge_pan,
                 camera_zoom,
                 camera_keyboard_pan,
                 camera_clamp,
-            ));
+            ).run_if(in_state(GameState::InGame)));
     }
 }
 
 #[derive(Component)]
 pub struct MainCamera;
 
-const EDGE_PAN_SPEED: f32 = 500.0;
+const EDGE_PAN_SPEED: f32 = 900.0;
 const EDGE_PAN_MARGIN: f32 = 20.0;
 const KEYBOARD_PAN_SPEED: f32 = 600.0;
 const ZOOM_SPEED: f32 = 0.1;
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 4.0;
 
-fn spawn_camera(mut commands: Commands, config: Res<MapConfig>) {
-    let start = config.player_base.to_world();
+fn spawn_menu_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
         MainCamera,
-        Transform::from_xyz(start.x, start.y, 999.9),
+        Transform::from_xyz(0.0, 0.0, 999.9),
     ));
+}
+
+fn reposition_camera(
+    config: Res<MapConfig>,
+    mut camera_q: Query<&mut Transform, With<MainCamera>>,
+) {
+    let start = config.player_base().to_world();
+    for mut transform in &mut camera_q {
+        transform.translation.x = start.x;
+        transform.translation.y = start.y;
+    }
 }
 
 fn camera_edge_pan(
@@ -122,9 +134,11 @@ fn camera_clamp(
 ) {
     let Ok(mut transform) = camera_q.single_mut() else { return };
 
-    let iso_w = MAP_WIDTH as f32 * TILE_SIZE;
-    let iso_h = (MAP_WIDTH + MAP_HEIGHT) as f32 * TILE_SIZE / 4.0;
+    // Diamond iso: x ∈ [0, 64*(W-1+H-1)], y ∈ [-32*(W-1), 32*(H-1)]
+    let max_x = (MAP_WIDTH as f32 - 1.0 + MAP_HEIGHT as f32 - 1.0) * (TILE_SIZE / 2.0);
+    let min_y = -((MAP_WIDTH as f32 - 1.0) * (TILE_SIZE / 4.0));
+    let max_y = (MAP_HEIGHT as f32 - 1.0) * (TILE_SIZE / 4.0);
 
-    transform.translation.x = transform.translation.x.clamp(0.0, iso_w);
-    transform.translation.y = transform.translation.y.clamp(0.0, iso_h);
+    transform.translation.x = transform.translation.x.clamp(0.0, max_x);
+    transform.translation.y = transform.translation.y.clamp(min_y, max_y);
 }

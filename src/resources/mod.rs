@@ -5,6 +5,8 @@ use bevy::prelude::*;
 use components::*;
 use gathering::*;
 use crate::map::generation::MapConfig;
+use crate::GameState;
+use crate::map::generation::generate_map_config;
 
 pub struct ResourcePlugin;
 
@@ -16,7 +18,7 @@ impl Plugin for ResourcePlugin {
                 gold: 100,
                 stone: 50,
             })
-            .add_systems(Startup, spawn_resource_nodes)
+            .add_systems(OnEnter(GameState::InGame), spawn_resource_nodes.after(generate_map_config))
             .add_systems(Update, (
                 gathering_system,
                 returning_system,
@@ -26,7 +28,7 @@ impl Plugin for ResourcePlugin {
                 gather_move_recovery_system,
                 floating_text_system,
                 auto_reseek_system,
-            ));
+            ).run_if(in_state(GameState::InGame)));
     }
 }
 

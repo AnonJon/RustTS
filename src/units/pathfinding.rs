@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use crate::map::{GridPosition, TILE_SIZE, MAP_WIDTH, MAP_HEIGHT};
-use crate::map::terrain::TerrainType;
-use crate::map::generation::{MapConfig, TerrainOverride};
+use crate::map::generation::{MapConfig, Tile};
 use std::collections::{BinaryHeap, HashMap};
 use std::cmp::Ordering;
 
@@ -46,8 +45,7 @@ pub fn find_path(
     goal: GridPosition,
     occupied: &HashMap<(i32, i32), Entity>,
     requesting_entity: Entity,
-    seed: u64,
-    terrain_grid: &[Vec<TerrainOverride>],
+    terrain_grid: &[Vec<Tile>],
 ) -> Option<Vec<Vec2>> {
     let start_pos = (start.x, start.y);
     let goal_pos = (goal.x, goal.y);
@@ -91,8 +89,7 @@ pub fn find_path(
                 continue;
             }
 
-            let terrain = TerrainType::for_position(next.0 as u32, next.1 as u32, seed, terrain_grid);
-            if !terrain.is_walkable() {
+            if !terrain_grid[next.0 as usize][next.1 as usize].is_walkable() {
                 continue;
             }
 
@@ -186,7 +183,7 @@ pub fn pathfinding_system(
         let start = GridPosition::from_world(transform.translation.truncate());
         let goal = GridPosition::from_world(move_target.0);
 
-        if let Some(waypoints) = find_path(start, goal, &occupied, entity, config.seed, &config.terrain_grid) {
+        if let Some(waypoints) = find_path(start, goal, &occupied, entity, &config.terrain_grid) {
             commands.entity(entity).insert(Path {
                 waypoints,
                 current_index: 0,

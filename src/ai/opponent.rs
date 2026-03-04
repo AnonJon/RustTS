@@ -4,7 +4,6 @@ use crate::map::{GridPosition, TILE_SIZE, MAP_WIDTH, MAP_HEIGHT};
 use crate::map::generation::MapConfig;
 use crate::units::components::*;
 use crate::units::types::*;
-use crate::units;
 use crate::buildings::components::*;
 use crate::buildings::spawn_building;
 use super::behaviors::*;
@@ -71,27 +70,30 @@ pub fn ai_startup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     config: Res<MapConfig>,
+    sprites: Res<UnitSprites>,
 ) {
-    let ai_base = config.ai_base;
+    let ai_base = config.ai_base();
+    let (tw, th) = BuildingKind::TownCenter.tile_size();
+    let tc_pos = crate::map::generation::nudge_building_onto_land(ai_base, tw, th, &config.terrain_grid);
 
     spawn_building(
         &mut commands,
         &mut images,
         BuildingKind::TownCenter,
         Team(AI_TEAM),
-        ai_base,
+        tc_pos,
     );
 
-    let villager_texture = units::create_unit_texture(&mut images, [200, 100, 100, 255]);
-    let positions = [
+    let offsets = [
         (ai_base.x + 2, ai_base.y),
         (ai_base.x, ai_base.y + 2),
         (ai_base.x - 2, ai_base.y),
     ];
-    for (x, y) in positions {
-        let grid = GridPosition::new(x, y);
+    for (x, y) in offsets {
+        let (lx, ly) = crate::map::generation::find_nearest_land(&config.terrain_grid, x, y);
+        let grid = GridPosition::new(lx, ly);
         let world = grid.to_world();
-        spawn_unit(&mut commands, &villager_texture, UnitKind::Villager, Team(AI_TEAM), grid, world);
+        spawn_unit(&mut commands, sprites.get(UnitKind::Villager), UnitKind::Villager, Team(AI_TEAM), grid, world);
     }
 }
 
@@ -128,7 +130,7 @@ pub fn ai_build_system(
         return;
     }
 
-    let ai_base = config.ai_base;
+    let ai_base = config.ai_base();
     let mut has_barracks = false;
     let mut has_range = false;
     let mut has_stable = false;
@@ -145,34 +147,37 @@ pub fn ai_build_system(
         }
     }
 
-    let mut rng = rand::rng();
-    let offset_x = rng.random_range(-4..=4);
-    let offset_y = rng.random_range(-4..=4);
-    let grid = GridPosition::new(
-        (ai_base.x + offset_x).clamp(2, MAP_WIDTH as i32 - 4),
-        (ai_base.y + offset_y).clamp(2, MAP_HEIGHT as i32 - 4),
-    );
+    let kind_to_build = if !has_barracks {
+        Some(BuildingKind::Barracks)
+    } else if ai.age >= Age::Feudal && !has_range {
+        Some(BuildingKind::ArcheryRange)
+    } else if ai.age >= Age::Castle && !has_stable {
+        Some(BuildingKind::Stable)
+    } else {
+        None
+    };
 
-    if !has_barracks {
-        let (f, w, g, s) = BuildingKind::Barracks.build_cost();
-        if ai.resources.spend(f, w, g, s) {
-            spawn_building(&mut commands, &mut images, BuildingKind::Barracks, Team(AI_TEAM), grid);
-        }
-        return;
-    }
+    if let Some(kind) = kind_to_build {
+        let mut rng = rand::rng();
+        let (tw, th) = kind.tile_size();
+        let (f, w, g, s) = kind.build_cost();
 
-    if ai.age >= Age::Feudal && !has_range {
-        let (f, w, g, s) = BuildingKind::ArcheryRange.build_cost();
-        if ai.resources.spend(f, w, g, s) {
-            spawn_building(&mut commands, &mut images, BuildingKind::ArcheryRange, Team(AI_TEAM), grid);
-        }
-        return;
-    }
+        for _ in 0..40 {
+            let offset_x = rng.random_range(-6..=6);
+            let offset_y = rng.random_range(-6..=6);
+            let grid = GridPosition::new(
+                (ai_base.x + offset_x).clamp(2, MAP_WIDTH as i32 - 4),
+                (ai_base.y + offset_y).clamp(2, MAP_HEIGHT as i32 - 4),
+            );
 
-    if ai.age >= Age::Castle && !has_stable {
-        let (f, w, g, s) = BuildingKind::Stable.build_cost();
-        if ai.resources.spend(f, w, g, s) {
-            spawn_building(&mut commands, &mut images, BuildingKind::Stable, Team(AI_TEAM), grid);
+            if crate::map::generation::building_footprint_has_water(grid, tw, th, &config.terrain_grid) {
+                continue;
+            }
+
+            if ai.resources.spend(f, w, g, s) {
+                spawn_building(&mut commands, &mut images, kind, Team(AI_TEAM), grid);
+            }
+            return;
         }
         return;
     }
@@ -192,7 +197,7 @@ pub fn ai_train_system(
     mut ai: ResMut<AiState>,
     time: Res<Time>,
     mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
+    sprites: Res<UnitSprites>,
     ai_buildings: Query<(&Building, &Transform, &Team)>,
     player_buildings: Query<(&Building, &Transform, &Team), Without<Unit>>,
 ) {
@@ -202,9 +207,6 @@ pub fn ai_train_system(
     }
 
     let player_tc_pos = find_player_tc(&player_buildings);
-
-    let enemy_texture = units::create_unit_texture(&mut images, [200, 40, 40, 255]);
-    let villager_texture = units::create_unit_texture(&mut images, [200, 100, 100, 255]);
 
     for (building, transform, team) in &ai_buildings {
         if team.0 != AI_TEAM { continue; }
@@ -216,7 +218,7 @@ pub fn ai_train_system(
             BuildingKind::TownCenter => {
                 let (f, w, g, s) = UnitKind::Villager.train_cost();
                 if ai.resources.spend(f, w, g, s) {
-                    let e = spawn_unit(&mut commands, &villager_texture, UnitKind::Villager, Team(AI_TEAM), grid, spawn_pos);
+                    let e = spawn_unit(&mut commands, sprites.get(UnitKind::Villager), UnitKind::Villager, Team(AI_TEAM), grid, spawn_pos);
                     commands.entity(e).insert(UnitState::Idle);
                 }
             }
@@ -224,7 +226,7 @@ pub fn ai_train_system(
                 let (f, w, g, s) = UnitKind::Militia.train_cost();
                 if ai.resources.spend(f, w, g, s) {
                     let center = player_tc_pos;
-                    let e = spawn_unit(&mut commands, &enemy_texture, UnitKind::Militia, Team(AI_TEAM), grid, spawn_pos);
+                    let e = spawn_unit(&mut commands, sprites.get(UnitKind::Militia), UnitKind::Militia, Team(AI_TEAM), grid, spawn_pos);
                     commands.entity(e).insert((
                         AiBehavior::Patrol,
                         PatrolPath {
@@ -239,7 +241,7 @@ pub fn ai_train_system(
                 let (f, w, g, s) = UnitKind::Archer.train_cost();
                 if ai.resources.spend(f, w, g, s) {
                     let center = player_tc_pos;
-                    let e = spawn_unit(&mut commands, &enemy_texture, UnitKind::Archer, Team(AI_TEAM), grid, spawn_pos);
+                    let e = spawn_unit(&mut commands, sprites.get(UnitKind::Archer), UnitKind::Archer, Team(AI_TEAM), grid, spawn_pos);
                     commands.entity(e).insert((
                         AiBehavior::Patrol,
                         PatrolPath {
@@ -254,7 +256,7 @@ pub fn ai_train_system(
                 let (f, w, g, s) = UnitKind::Knight.train_cost();
                 if ai.resources.spend(f, w, g, s) {
                     let center = player_tc_pos;
-                    let e = spawn_unit(&mut commands, &enemy_texture, UnitKind::Knight, Team(AI_TEAM), grid, spawn_pos);
+                    let e = spawn_unit(&mut commands, sprites.get(UnitKind::Knight), UnitKind::Knight, Team(AI_TEAM), grid, spawn_pos);
                     commands.entity(e).insert((
                         AiBehavior::Patrol,
                         PatrolPath {

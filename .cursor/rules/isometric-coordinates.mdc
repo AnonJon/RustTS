@@ -1,0 +1,25 @@
+---
+description: Isometric coordinate system rules - entity/tile alignment with bevy_ecs_tilemap
+globs: src/map/**/*.rs, src/units/**/*.rs, src/buildings/**/*.rs, src/ai/**/*.rs, src/resources/**/*.rs, src/camera.rs, src/ui/**/*.rs
+alwaysApply: false
+---
+
+# Isometric Coordinate System
+
+All entity world positions MUST use `GridPosition::to_world()` which matches bevy_ecs_tilemap's `DIAMOND_BASIS` projection exactly:
+
+```
+world_x = 64 * (grid_x + grid_y)
+world_y = 32 * (grid_y - grid_x)
+```
+
+## Rules
+
+- **Never write a custom isometric projection.** Always go through `GridPosition::to_world()` and `GridPosition::from_world()`.
+- The tilemap uses `TilemapAnchor::None` (default) with `Transform::default()` so tile (0,0) = world origin. Do not change the anchor or add a manual transform offset.
+- Depth sorting uses `world_x` (not `world_y`), because `world_x = 64*(x+y)` encodes isometric depth in diamond projection.
+- World coordinate ranges for a 48x48 map: `x ∈ [0, 6016]`, `y ∈ [-1504, 1504]`.
+
+## Why This Matters
+
+If `to_world()` diverges from bevy_ecs_tilemap's diamond projection, entities visually separate from their tiles. On all-land maps this is invisible, but on water maps (Islands, Coastal) entities appear to float in water.

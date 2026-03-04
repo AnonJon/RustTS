@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::units::components::*;
+use crate::GameState;
 
 pub struct GameAudioPlugin;
 
@@ -9,7 +10,7 @@ impl Plugin for GameAudioPlugin {
             .add_systems(Update, (
                 play_selection_sound,
                 play_attack_sound,
-            ));
+            ).run_if(in_state(GameState::InGame)));
     }
 }
 

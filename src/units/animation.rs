@@ -23,10 +23,12 @@ impl AnimationConfig {
 
     fn frame_count(&self, state: &UnitState) -> u32 {
         match state {
-            UnitState::Idle => self.idle_frames,
+            // Use only the first idle frame to avoid shimmer from semi-transparent pixels
+            // differing across idle frames. idle_frames is still used for walk/attack offsets.
+            UnitState::Idle => 1,
             UnitState::Moving => self.walk_frames,
             UnitState::Attacking => self.attack_frames,
-            _ => self.idle_frames,
+            _ => 1,
         }
     }
 }
@@ -42,6 +44,11 @@ pub fn animation_system(
             if frame_count > 0 {
                 anim.current_frame = (anim.current_frame + 1) % frame_count;
             }
+        }
+
+        let frame_count = anim.frame_count(state);
+        if frame_count > 0 && anim.current_frame >= frame_count {
+            anim.current_frame = 0;
         }
 
         let base_offset = match state {

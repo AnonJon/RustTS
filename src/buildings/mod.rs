@@ -10,6 +10,8 @@ use crate::units::components::*;
 use crate::map::{GridPosition, TILE_SIZE};
 use crate::map::generation::MapConfig;
 use crate::resources::components::DropOff;
+use crate::GameState;
+use crate::map::generation::generate_map_config;
 
 pub struct BuildingPlugin;
 
@@ -18,7 +20,7 @@ impl Plugin for BuildingPlugin {
         app.init_resource::<CurrentAge>()
             .init_resource::<AgeUpProgress>()
             .init_resource::<PlacementMode>()
-            .add_systems(Startup, spawn_starting_buildings)
+            .add_systems(OnEnter(GameState::InGame), spawn_starting_buildings.after(generate_map_config))
             .add_systems(Update, (
                 training_system,
                 age_up_system,
@@ -30,7 +32,7 @@ impl Plugin for BuildingPlugin {
                 update_ghost_position,
                 place_building_system,
                 show_placement_ui,
-            ));
+            ).run_if(in_state(GameState::InGame)));
     }
 }
 
@@ -39,12 +41,15 @@ fn spawn_starting_buildings(
     mut images: ResMut<Assets<Image>>,
     config: Res<MapConfig>,
 ) {
+    let base = config.player_base();
+    let (tw, th) = BuildingKind::TownCenter.tile_size();
+    let pos = crate::map::generation::nudge_building_onto_land(base, tw, th, &config.terrain_grid);
     spawn_building(
         &mut commands,
         &mut images,
         BuildingKind::TownCenter,
         Team(0),
-        config.player_base,
+        pos,
     );
 }
 
@@ -63,7 +68,7 @@ pub fn spawn_building(
     let world = grid.to_world();
 
     let sprite_size = if sprite_path(kind).is_some() {
-        Some(Vec2::new(pixel_w as f32, pixel_h as f32))
+        Some(kind.sprite_display_size(pixel_w as f32, pixel_h as f32))
     } else {
         None
     };
@@ -106,6 +111,7 @@ pub fn spawn_building(
 
 fn sprite_path(kind: BuildingKind) -> Option<&'static str> {
     match kind {
+        BuildingKind::TownCenter => Some("assets/sprites/buildings/castlekeep_14.png"),
         BuildingKind::LumberCamp => Some("assets/textures/lumber_camp.png"),
         BuildingKind::MiningCamp => Some("assets/textures/mining_camp.png"),
         _ => None,

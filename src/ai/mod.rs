@@ -4,13 +4,15 @@ pub mod opponent;
 use bevy::prelude::*;
 use behaviors::*;
 use opponent::*;
+use crate::GameState;
+use crate::map::generation::generate_map_config;
 
 pub struct AiPlugin;
 
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AiState>()
-            .add_systems(Startup, ai_startup)
+            .add_systems(OnEnter(GameState::InGame), ai_startup.after(generate_map_config))
             .add_systems(Update, (
                 ai_economy_system,
                 ai_build_system,
@@ -19,6 +21,6 @@ impl Plugin for AiPlugin {
                 ai_detection_system,
                 ai_patrol_system,
                 ai_flee_system,
-            ));
+            ).run_if(in_state(GameState::InGame)));
     }
 }

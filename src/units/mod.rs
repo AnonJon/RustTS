@@ -13,12 +13,15 @@ use selection::*;
 use combat::*;
 use animation::*;
 use pathfinding::*;
+use crate::GameState;
+use crate::map::generation::generate_map_config;
 
 pub struct UnitPlugin;
 
 impl Plugin for UnitPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_initial_units)
+        app.add_systems(PreStartup, load_unit_sprites)
+            .add_systems(OnEnter(GameState::InGame), spawn_initial_units.after(generate_map_config))
             .add_systems(Update, (
                 handle_selection_click,
                 handle_drag_selection,
@@ -37,28 +40,36 @@ impl Plugin for UnitPlugin {
                 animation_system,
                 facing_system,
                 separation_system,
-            ));
+            ).run_if(in_state(GameState::InGame)));
     }
+}
+
+fn load_unit_sprites(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+) {
+    let villager = make_unit_sprite_sheet(&asset_server, &mut atlas_layouts, types::UnitKind::Villager);
+    let militia = make_unit_sprite_sheet(&asset_server, &mut atlas_layouts, types::UnitKind::Militia);
+    commands.insert_resource(types::UnitSprites { villager, militia });
 }
 
 fn spawn_initial_units(
     mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
+    sprites: Res<types::UnitSprites>,
     config: Res<crate::map::generation::MapConfig>,
 ) {
-    let militia_texture = create_unit_texture(&mut images, [40, 80, 220, 255]);
-    let villager_texture = create_unit_texture(&mut images, [200, 160, 60, 255]);
-
-    let bx = config.player_base.x;
-    let by = config.player_base.y;
+    let bx = config.player_base().x;
+    let by = config.player_base().y;
 
     let militia_offsets = [(2, 0), (3, 1), (0, 3)];
     for (dx, dy) in militia_offsets {
-        let grid = crate::map::GridPosition::new(bx + dx, by + dy);
+        let (lx, ly) = crate::map::generation::find_nearest_land(&config.terrain_grid, bx + dx, by + dy);
+        let grid = crate::map::GridPosition::new(lx, ly);
         let world = grid.to_world();
         types::spawn_unit(
             &mut commands,
-            &militia_texture,
+            sprites.get(types::UnitKind::Militia),
             types::UnitKind::Militia,
             Team(0),
             grid,
@@ -68,11 +79,12 @@ fn spawn_initial_units(
 
     let villager_offsets = [(0, 0), (1, 2)];
     for (dx, dy) in villager_offsets {
-        let grid = crate::map::GridPosition::new(bx + dx, by + dy);
+        let (lx, ly) = crate::map::generation::find_nearest_land(&config.terrain_grid, bx + dx, by + dy);
+        let grid = crate::map::GridPosition::new(lx, ly);
         let world = grid.to_world();
         types::spawn_unit(
             &mut commands,
-            &villager_texture,
+            sprites.get(types::UnitKind::Villager),
             types::UnitKind::Villager,
             Team(0),
             grid,
@@ -81,43 +93,26 @@ fn spawn_initial_units(
     }
 }
 
-pub fn create_unit_texture(images: &mut Assets<Image>, color: [u8; 4]) -> Handle<Image> {
-    let size = 24u32;
-    let mut data = vec![0u8; (size * size * 4) as usize];
-    let center = size as f32 / 2.0;
-    let radius = size as f32 / 2.0 - 1.0;
+fn make_unit_sprite_sheet(
+    asset_server: &Res<AssetServer>,
+    atlas_layouts: &mut ResMut<Assets<TextureAtlasLayout>>,
+    kind: types::UnitKind,
+) -> types::UnitSpriteSheet {
+    let path = kind.sprite_path().expect("unit kind must have a sprite path");
+    let texture: Handle<Image> = asset_server.load(path);
 
-    for y in 0..size {
-        for x in 0..size {
-            let dx = x as f32 - center + 0.5;
-            let dy = y as f32 - center + 0.5;
-            let dist = (dx * dx + dy * dy).sqrt();
-            let idx = ((y * size + x) * 4) as usize;
-            if dist <= radius {
-                data[idx] = color[0];
-                data[idx + 1] = color[1];
-                data[idx + 2] = color[2];
-                data[idx + 3] = color[3];
-            }
-        }
-    }
-
-    let mut image = Image::new(
-        bevy::render::render_resource::Extent3d {
-            width: size,
-            height: size,
-            depth_or_array_layers: 1,
-        },
-        bevy::render::render_resource::TextureDimension::D2,
-        data,
-        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
-        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    let frame_count = kind.frame_count();
+    let layout = TextureAtlasLayout::from_grid(
+        UVec2::new(48, 48),
+        frame_count as u32,
+        1,
+        None,
+        None,
     );
-    image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
-        mag_filter: bevy::image::ImageFilterMode::Nearest,
-        min_filter: bevy::image::ImageFilterMode::Nearest,
-        ..default()
-    });
+    let atlas_layout = atlas_layouts.add(layout);
 
-    images.add(image)
+    types::UnitSpriteSheet {
+        texture,
+        atlas_layout,
+    }
 }

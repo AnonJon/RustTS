@@ -95,11 +95,16 @@ fn draw_rect_outline(img: &mut Image, cx: i32, cy: i32, half_w: i32, half_h: i32
     }
 }
 
+// Diamond iso world bounds:
+//   x ∈ [0, MAX_WORLD_X],  y ∈ [MIN_WORLD_Y, MAX_WORLD_Y]
+const MAX_WORLD_X: f32 = (MAP_WIDTH as f32 + MAP_HEIGHT as f32 - 2.0) * (TILE_SIZE / 2.0);
+const MIN_WORLD_Y: f32 = -((MAP_WIDTH as f32 - 1.0) * (TILE_SIZE / 4.0));
+const MAX_WORLD_Y: f32 = (MAP_HEIGHT as f32 - 1.0) * (TILE_SIZE / 4.0);
+const WORLD_Y_SPAN: f32 = MAX_WORLD_Y - MIN_WORLD_Y;
+
 fn world_to_minimap(world_pos: Vec2) -> (i32, i32) {
-    let iso_w = MAP_WIDTH as f32 * TILE_SIZE;
-    let iso_h = (MAP_WIDTH + MAP_HEIGHT) as f32 * TILE_SIZE / 4.0;
-    let x = ((world_pos.x / iso_w) * MINIMAP_PX as f32) as i32;
-    let y = ((1.0 - world_pos.y / iso_h) * MINIMAP_PX as f32) as i32;
+    let x = ((world_pos.x / MAX_WORLD_X) * MINIMAP_PX as f32) as i32;
+    let y = (((MAX_WORLD_Y - world_pos.y) / WORLD_Y_SPAN) * MINIMAP_PX as f32) as i32;
     (x.clamp(0, MINIMAP_PX as i32 - 1), y.clamp(0, MINIMAP_PX as i32 - 1))
 }
 
@@ -148,11 +153,8 @@ pub fn update_minimap(
         let view_w = window.width() * scale;
         let view_h = window.height() * scale;
 
-        let iso_w = MAP_WIDTH as f32 * TILE_SIZE;
-        let iso_h = (MAP_WIDTH + MAP_HEIGHT) as f32 * TILE_SIZE / 4.0;
-
-        let half_w = ((view_w / iso_w) * MINIMAP_PX as f32 / 2.0) as i32;
-        let half_h = ((view_h / iso_h) * MINIMAP_PX as f32 / 2.0) as i32;
+        let half_w = ((view_w / MAX_WORLD_X) * MINIMAP_PX as f32 / 2.0) as i32;
+        let half_h = ((view_h / WORLD_Y_SPAN) * MINIMAP_PX as f32 / 2.0) as i32;
 
         let (cx, cy) = world_to_minimap(cam_pos);
         draw_rect_outline(img, cx, cy, half_w, half_h, [255, 255, 255, 200]);
@@ -185,10 +187,8 @@ pub fn minimap_click(
         return;
     }
 
-    let iso_w = MAP_WIDTH as f32 * TILE_SIZE;
-    let iso_h = (MAP_WIDTH + MAP_HEIGHT) as f32 * TILE_SIZE / 4.0;
-    let world_x = (local_x / MINIMAP_PX as f32) * iso_w;
-    let world_y = (1.0 - local_y / MINIMAP_PX as f32) * iso_h;
+    let world_x = (local_x / MINIMAP_PX as f32) * MAX_WORLD_X;
+    let world_y = MAX_WORLD_Y - (local_y / MINIMAP_PX as f32) * WORLD_Y_SPAN;
 
     let Ok(mut cam_tf) = camera_q.single_mut() else { return };
     cam_tf.translation.x = world_x;

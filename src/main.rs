@@ -18,6 +18,28 @@ use ai::AiPlugin;
 use ui::GameUiPlugin;
 use audio::GameAudioPlugin;
 
+#[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub enum GameState {
+    #[default]
+    Menu,
+    InGame,
+}
+
+#[derive(Resource)]
+pub struct GameSettings {
+    pub map_type: map::generation::MapType,
+    pub num_players: usize,
+}
+
+impl Default for GameSettings {
+    fn default() -> Self {
+        Self {
+            map_type: map::generation::MapType::Arabia,
+            num_players: 2,
+        }
+    }
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -28,6 +50,8 @@ fn main() {
             }),
             ..default()
         }))
+        .init_state::<GameState>()
+        .init_resource::<GameSettings>()
         .add_plugins(CameraPlugin)
         .add_plugins(MapPlugin)
         .add_plugins(UnitPlugin)

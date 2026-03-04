@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use super::components::*;
+use super::animation::AnimationConfig;
 use crate::map::GridPosition;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,11 +52,49 @@ impl UnitKind {
             },
         }
     }
+
+    pub fn sprite_path(self) -> Option<&'static str> {
+        match self {
+            UnitKind::Villager => Some("sprites/units/villager.png"),
+            UnitKind::Militia => Some("sprites/units/militia.png"),
+            _ => None,
+        }
+    }
+
+    pub fn animation_config(self) -> AnimationConfig {
+        AnimationConfig::new(2, 4, 3, 8.0)
+    }
+
+    pub fn frame_count(self) -> usize {
+        9 // 2 idle + 4 walk + 3 attack
+    }
+}
+
+pub struct UnitSpriteSheet {
+    pub texture: Handle<Image>,
+    pub atlas_layout: Handle<TextureAtlasLayout>,
+}
+
+#[derive(Resource)]
+pub struct UnitSprites {
+    pub villager: UnitSpriteSheet,
+    pub militia: UnitSpriteSheet,
+}
+
+impl UnitSprites {
+    pub fn get(&self, kind: UnitKind) -> &UnitSpriteSheet {
+        match kind {
+            UnitKind::Villager => &self.villager,
+            UnitKind::Militia => &self.militia,
+            UnitKind::Archer => &self.militia,
+            UnitKind::Knight => &self.militia,
+        }
+    }
 }
 
 pub fn spawn_unit(
     commands: &mut Commands,
-    texture: &Handle<Image>,
+    sheet: &UnitSpriteSheet,
     kind: UnitKind,
     team: Team,
     grid: GridPosition,
@@ -75,9 +114,14 @@ pub fn spawn_unit(
             cooldown: Timer::from_seconds(1.0, TimerMode::Repeating),
         },
         UnitState::default(),
+        kind.animation_config(),
         Sprite {
-            image: texture.clone(),
+            image: sheet.texture.clone(),
             custom_size: Some(Vec2::splat(48.0)),
+            texture_atlas: Some(TextureAtlas {
+                layout: sheet.atlas_layout.clone(),
+                index: 0,
+            }),
             ..default()
         },
         Transform::from_xyz(world_pos.x, world_pos.y, 10.0),

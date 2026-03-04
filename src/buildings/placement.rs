@@ -200,6 +200,7 @@ pub fn place_building_system(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut resources: ResMut<PlayerResources>,
+    config: Res<crate::map::generation::MapConfig>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     existing_buildings: Query<(&Transform, &Building)>,
@@ -233,6 +234,15 @@ pub fn place_building_system(
     }
 
     let (tw, th) = kind.tile_size();
+    if crate::map::generation::building_footprint_has_water(
+        grid,
+        tw,
+        th,
+        &config.terrain_grid,
+    ) {
+        return;
+    }
+
     let half_w = tw as f32 * TILE_SIZE / 2.0;
     let half_h = th as f32 * TILE_SIZE / 2.0;
     let snapped = grid.to_world();
@@ -275,6 +285,7 @@ fn cancel_placement(placement: &mut PlacementMode, commands: &mut Commands) {
 
 pub fn show_placement_ui(
     placement: Res<PlacementMode>,
+    config: Res<crate::map::generation::MapConfig>,
     mut gizmos: Gizmos,
     ghost_q: Query<&Transform, With<GhostBuilding>>,
     existing_buildings: Query<(&Transform, &Building), Without<GhostBuilding>>,
@@ -291,7 +302,15 @@ pub fn show_placement_ui(
         let half_w = tw as f32 * TILE_SIZE / 2.0;
         let half_h = th as f32 * TILE_SIZE / 2.0;
 
-        let mut blocked = false;
+        let grid = crate::map::GridPosition::from_world(pos);
+        let on_water = crate::map::generation::building_footprint_has_water(
+            grid,
+            tw,
+            th,
+            &config.terrain_grid,
+        );
+
+        let mut blocked = on_water;
         for (existing_tf, existing_bld) in &existing_buildings {
             let (ew, eh) = existing_bld.kind.tile_size();
             let e_half_w = ew as f32 * TILE_SIZE / 2.0;

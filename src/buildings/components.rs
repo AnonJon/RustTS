@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::units::types::UnitKind;
+use bevy::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Age {
@@ -88,6 +88,7 @@ impl BuildingKind {
         match self {
             BuildingKind::TownCenter => (4, 4),
             BuildingKind::Farm => (3, 3),
+            BuildingKind::LumberCamp | BuildingKind::MiningCamp | BuildingKind::Mill => (1, 1),
             _ => (3, 3),
         }
     }
@@ -104,10 +105,28 @@ impl BuildingKind {
 
     pub fn required_age(self) -> Age {
         match self {
-            BuildingKind::TownCenter | BuildingKind::Barracks |
-            BuildingKind::Farm | BuildingKind::LumberCamp |
-            BuildingKind::MiningCamp | BuildingKind::Mill => Age::Dark,
+            BuildingKind::TownCenter
+            | BuildingKind::Barracks
+            | BuildingKind::Farm
+            | BuildingKind::LumberCamp
+            | BuildingKind::MiningCamp
+            | BuildingKind::Mill => Age::Dark,
             BuildingKind::ArcheryRange | BuildingKind::Stable => Age::Feudal,
+        }
+    }
+
+    /// Display size for sprite-based buildings. For buildings with actual sprites,
+    /// we use their native aspect ratio scaled to fit the tile footprint width.
+    /// `fallback_w` / `fallback_h` are used for non-sprite buildings.
+    pub fn sprite_display_size(self, fallback_w: f32, fallback_h: f32) -> Vec2 {
+        match self {
+            // Castle sprite is 2178×1516; scale to 4-tile width (512px), keep aspect ratio
+            BuildingKind::TownCenter => {
+                let w = fallback_w; // 512
+                let aspect = 1516.0 / 2178.0;
+                Vec2::new(w, w * aspect)
+            }
+            _ => Vec2::new(fallback_w, fallback_h),
         }
     }
 

@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use crate::map::{GridPosition, TILE_SIZE};
 use crate::units::components::*;
-use crate::units::types::{UnitKind, spawn_unit};
-use crate::units;
+use crate::units::types::{UnitKind, UnitSprites, spawn_unit};
 use crate::resources::components::PlayerResources;
 use super::components::*;
 
@@ -10,7 +9,7 @@ pub fn training_system(
     mut commands: Commands,
     mut buildings: Query<(Entity, &Building, &mut TrainingQueue, &Transform, &Team)>,
     _player_resources: ResMut<PlayerResources>,
-    mut images: ResMut<Assets<Image>>,
+    sprites: Res<UnitSprites>,
     time: Res<Time>,
 ) {
     for (_entity, building, mut queue, transform, team) in &mut buildings {
@@ -28,12 +27,10 @@ pub fn training_system(
                 transform.translation.truncate() + Vec2::new(0.0, -TILE_SIZE * 3.0)
             });
 
-            let color = kind.stats().color;
-            let texture = units::create_unit_texture(&mut images, color);
             let spawn_pos = transform.translation.truncate() + Vec2::new(0.0, -TILE_SIZE * 2.0);
             let grid = GridPosition::from_world(spawn_pos);
 
-            let entity = spawn_unit(&mut commands, &texture, kind, *team, grid, spawn_pos);
+            let entity = spawn_unit(&mut commands, sprites.get(kind), kind, *team, grid, spawn_pos);
             commands.entity(entity)
                 .insert(MoveTarget(rally))
                 .insert(UnitState::Moving);
